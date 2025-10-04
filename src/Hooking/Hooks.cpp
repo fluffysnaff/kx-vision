@@ -2,6 +2,7 @@
 
 #include <windows.h> // For __try/__except
 
+#include "../Core/Config.h"      // For GW2AL_BUILD define
 #include "../Utils/DebugLogger.h"
 #include "AddressManager.h"
 #include "AppState.h"
@@ -49,39 +50,45 @@ namespace kx {
     bool InitializeHooks() {
         AppState::Get().SetPresentHookStatus(HookStatus::Unknown);
 
-        if (!kx::Hooking::HookManager::Initialize()) {
-            return false;
-        }
+        // Note: HookManager::Initialize() is now called in AppLifecycleManager::Initialize()
+        // or AppLifecycleManager::InitializeForGW2AL() for architectural consistency
 
+#ifndef GW2AL_BUILD
+        // Only initialize D3D hook in standalone DLL mode
+        // In GW2AL mode, this is handled by GW2AL_Integration.cpp
         if (!kx::Hooking::D3DRenderHook::Initialize()) {
             kx::Hooking::HookManager::Shutdown();
             AppState::Get().SetPresentHookStatus(HookStatus::Failed);
             return false;
         }
+#endif
 
+        LOG_INFO("[Hooks] Essential hooks initialized successfully.");
+        return true;
+    }
+
+    bool InitializeGameThreadHook() {
         uintptr_t gameThreadFuncAddr = AddressManager::GetGameThreadUpdateFunc();
-        if (gameThreadFuncAddr) {
-            if (!Hooking::HookManager::CreateHook(
-                reinterpret_cast<LPVOID>(gameThreadFuncAddr),
-                reinterpret_cast<LPVOID>(Hooking::DetourGameThread),
-                reinterpret_cast<LPVOID*>(&Hooking::pOriginalGameThreadUpdate)
-            )) {
-                LOG_ERROR("[Hooks] Failed to create GameThread hook.");
-            }
-            else {
-                if (Hooking::HookManager::EnableHook(reinterpret_cast<LPVOID>(gameThreadFuncAddr))) {
-                    LOG_INFO("[Hooks] GameThread hook created and enabled.");
-                }
-                else {
-                    LOG_ERROR("[Hooks] Failed to enable GameThread hook.");
-                }
-            }
-        }
-        else {
+        if (!gameThreadFuncAddr) {
             LOG_WARN("[Hooks] GameThread hook target not found. Character ESP will be disabled.");
+            return false;
         }
 
-        LOG_INFO("[Hooks] All hooks initialized successfully.");
+        if (!Hooking::HookManager::CreateHook(
+            reinterpret_cast<LPVOID>(gameThreadFuncAddr),
+            reinterpret_cast<LPVOID>(Hooking::DetourGameThread),
+            reinterpret_cast<LPVOID*>(&Hooking::pOriginalGameThreadUpdate)
+        )) {
+            LOG_ERROR("[Hooks] Failed to create GameThread hook.");
+            return false;
+        }
+
+        if (!Hooking::HookManager::EnableHook(reinterpret_cast<LPVOID>(gameThreadFuncAddr))) {
+            LOG_ERROR("[Hooks] Failed to enable GameThread hook.");
+            return false;
+        }
+
+        LOG_INFO("[Hooks] GameThread hook created and enabled.");
         return true;
     }
 
@@ -96,7 +103,12 @@ namespace kx {
             LOG_INFO("[Hooks] GameThread hook cleaned up.");
         }
 
+#ifndef GW2AL_BUILD
+        // Only shutdown D3D hook in standalone DLL mode
+        // In GW2AL mode, this is handled by GW2AL_Integration.cpp
         kx::Hooking::D3DRenderHook::Shutdown();
+#endif
+
         kx::Hooking::HookManager::Shutdown();
 
         LOG_INFO("[Hooks] Cleanup finished.");

@@ -7,6 +7,10 @@
 #include <windows.h>
 #pragma comment(lib, "d3d11.lib")
 
+namespace kx {
+    class AppLifecycleManager;
+}
+
 namespace kx::Hooking {
 
     // Forward declare ImGuiManager to avoid include dependency cycle if needed
@@ -28,6 +32,20 @@ namespace kx::Hooking {
         static bool Initialize();
 
         /**
+         * @brief Initialize from an existing D3D device (GW2AL mode)
+         * @param device The D3D11 device provided by GW2AL
+         * @param swapChain The swap chain provided by GW2AL
+         * @return True if successful, false otherwise.
+         */
+        static bool InitializeFromDevice(ID3D11Device* device, IDXGISwapChain* swapChain);
+
+        /**
+         * @brief Handle swap chain resize events
+         * @param pSwapChain The swap chain being resized
+         */
+        static void OnResize(IDXGISwapChain* pSwapChain);
+
+        /**
          * @brief Cleans up resources, restores the original WndProc, and
          *        requests removal of the Present hook via HookManager.
          */
@@ -39,7 +57,15 @@ namespace kx::Hooking {
          */
         static bool IsInitialized();
 
+        /**
+         * @brief Sets the AppLifecycleManager for accessing Camera and MumbleLink data
+         * @param lifecycleManager Pointer to the AppLifecycleManager instance
+         */
+        static void SetLifecycleManager(kx::AppLifecycleManager* lifecycleManager);
+
+        static ID3D11Device* GetDevice() { return m_pDevice; }
         static ID3D11DeviceContext* GetContext() { return m_pContext; }
+        static ID3D11RenderTargetView* GetMainRenderTargetView() { return m_pMainRenderTargetView; }
 
         static HWND GetWindowHandle() { return m_hWindow; }
 
@@ -62,6 +88,9 @@ namespace kx::Hooking {
         // --- WndProc Hooking ---
         static WNDPROC m_pOriginalWndProc; // Pointer to the game's original WndProc
 
+        // --- Lifecycle Manager ---
+        static kx::AppLifecycleManager* m_pLifecycleManager; // Pointer to AppLifecycleManager for game state
+
         // --- Private Methods ---
         /**
          * @brief Finds the address of the IDXGISwapChain::Present function.
@@ -78,6 +107,20 @@ namespace kx::Hooking {
          * @brief The replacement Window Procedure (WndProc).
          */
         static LRESULT __stdcall WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+        // --- Helper Methods for DetourPresent ---
+        
+        /**
+         * @brief One-time initialization of D3D resources, ImGui, and WndProc hook
+         * @param pSwapChain The swap chain to initialize from
+         * @return True if initialization successful, false otherwise
+         */
+        static bool InitializeD3DResources(IDXGISwapChain* pSwapChain);
+
+        /**
+         * @brief Render the ImGui frame
+         */
+        static void RenderFrame();
     };
 
 } // namespace kx::Hooking

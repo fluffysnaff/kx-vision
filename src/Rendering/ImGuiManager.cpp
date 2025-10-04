@@ -5,13 +5,14 @@
 #include <string>
 #include <windows.h>
 
-#include "ESPRenderer.h"
+#include "Core/ESPRenderer.h"
 #include "GuiStyle.h"
 #include "../../libs/ImGui/imgui.h"
 #include "../../libs/ImGui/imgui_impl_dx11.h"
 #include "../../libs/ImGui/imgui_impl_win32.h"
 #include "../Core/AppState.h"
 #include "../Core/Config.h"
+#include "../Game/MumbleLinkManager.h"
 #include "../Hooking/D3DRenderHook.h"
 #include "../Utils/DebugLogger.h"
 
@@ -24,8 +25,7 @@
 #include "GUI/ValidationTab.h"
 
 // Define static members
-kx::Camera ImGuiManager::m_camera;
-kx::MumbleLinkManager ImGuiManager::m_mumbleLinkManager;
+bool ImGuiManager::m_isInitialized = false;
 
 bool ImGuiManager::Initialize(ID3D11Device* device, ID3D11DeviceContext* context, HWND hwnd) {
     IMGUI_CHECKVERSION();
@@ -38,10 +38,8 @@ bool ImGuiManager::Initialize(ID3D11Device* device, ID3D11DeviceContext* context
 
     if (!ImGui_ImplWin32_Init(hwnd)) return false;
     if (!ImGui_ImplDX11_Init(device, context)) return false;
-    
-    // Initialize ESP renderer with our camera
-    kx::ESPRenderer::Initialize(m_camera);
 
+    m_isInitialized = true;
     return true;
 }
 
@@ -62,7 +60,7 @@ void ImGuiManager::Render(ID3D11DeviceContext* context, ID3D11RenderTargetView* 
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 }
 
-void ImGuiManager::RenderESPWindow() {
+void ImGuiManager::RenderESPWindow(kx::MumbleLinkManager& mumbleLinkManager, const kx::MumbleLinkData* mumbleData) {
     // Use AppState singleton instead of global variable
     if (!kx::AppState::Get().IsVisionWindowOpen()) return;
 
@@ -86,9 +84,24 @@ void ImGuiManager::RenderESPWindow() {
 
     RenderHints();
 
-    // Connection status
-    ImGui::Text("MumbleLink Status: %s", 
-        m_mumbleLinkManager.IsInitialized() ? "Connected" : "Disconnected");
+    // Connection status with detailed information
+    bool isConnected = mumbleLinkManager.IsInitialized();
+    uint32_t mapId = mumbleLinkManager.mapId();
+    
+    if (isConnected && mumbleData) {
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "MumbleLink Status: Connected");
+        
+        if (mapId != 0) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "| In-Map (ID: %u)", mapId);
+        } else {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "| Waiting for map...");
+        }
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "MumbleLink Status: Disconnected");
+    }
+    
     ImGui::Separator(); // Add a separator for visual clarity
 
     if (ImGui::BeginTabBar("##ESPCategories")) {
@@ -109,28 +122,33 @@ void ImGuiManager::RenderESPWindow() {
     ImGui::End();
 }
 
-void ImGuiManager::RenderUI() {
-    ImGuiIO& io = ImGui::GetIO();
-
-    // Update MumbleLink and Camera
-    m_mumbleLinkManager.Update();
-    m_camera.Update(m_mumbleLinkManager.GetData(), kx::Hooking::D3DRenderHook::GetWindowHandle());
-
+void ImGuiManager::RenderUI(kx::Camera& camera, 
+                            kx::MumbleLinkManager& mumbleLinkManager,
+                            const kx::MumbleLinkData* mumbleLinkData,
+                            HWND windowHandle,
+                            float displayWidth,
+                            float displayHeight) {
     // Render the ESP overlay
-    kx::ESPRenderer::Render(io.DisplaySize.x, io.DisplaySize.y, m_mumbleLinkManager.GetData());
+    kx::ESPRenderer::Render(displayWidth, displayHeight, mumbleLinkData);
     
-    // Render the UI window if it's shown
-    if (kx::AppState::Get().GetSettings().showVisionWindow) {
-        RenderESPWindow();
+    // Render the UI window if it's shown (check AppState's unified visibility flag)
+    if (kx::AppState::Get().IsVisionWindowOpen()) {
+        RenderESPWindow(mumbleLinkManager, mumbleLinkData);
     }
 }
 
 void ImGuiManager::RenderHints() {
     // Display keyboard shortcuts with consistent styling
+#ifdef GW2AL_BUILD
+    const char* hints[] = {
+        "Press INSERT to show/hide window."
+    };
+#else
     const char* hints[] = {
         "Press INSERT to show/hide window.",
         "Press DELETE to unload DLL."
     };
+#endif
     
     for (const auto& hint : hints) {
         ImGui::TextDisabled("Hint: %s", hint);
@@ -144,4 +162,6 @@ void ImGuiManager::Shutdown() {
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
+    
+    m_isInitialized = false;
 }

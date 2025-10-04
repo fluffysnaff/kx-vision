@@ -75,9 +75,12 @@ enum class Attitude : uint32_t {
 enum class GadgetType : uint32_t {
     Destructible = 1,       // Training dummy, siege practice targets
     Point = 2,              // PvP control points, event spawns
+    Generic = 3,            // Generic, often invisible, trigger
     Crafting = 5,           // Crafting stations
     Door = 6,               // Interactive doors, gates
+    BountyBoard = 11,       // Bounty boards
     Interact = 12,          // Chests, portals
+    Rift = 13,              // Reality Rifts
     PlayerSpecific = 14,    // Player-specific objects
     AttackTarget = 16,      // World bosses, fort walls
     MapPortal = 17,         // Map border portals
@@ -123,13 +126,52 @@ enum class EquipmentSlot : int {
     Helm = 5,
     Pants = 6,
     Shoulders = 7,
+
+    TownChest = 14,
+    TownBoots = 15,
+    TownGloves = 16,
+    TownHelm = 17,
+    TownPants = 18,
+
+    Accessory1 = 19,
+    Accessory2 = 20,
+    Ring1 = 21,
+    Ring2 = 22,
+    Amulet = 23,
+
+    AquaticWeapon1 = 24,
+    AquaticWeapon2 = 25,
+    Novelty = 26,
+    TransformWeapon = 27,
+
     MainhandWeapon1 = 29,
     OffhandWeapon1 = 30,
     MainhandWeapon2 = 31,
     OffhandWeapon2 = 32,
+    Toy = 33,
     ForagingTool = 34,
     LoggingTool = 35,
     MiningTool = 36,
+
+    PvpAquaticHelm = 40,
+    PvpBack = 41,
+    PvpChest = 42,
+    PvpBoots = 43,
+    PvpGloves = 44,
+    PvpHelm = 45,
+    PvpPants = 46,
+    PvpShoulders = 47,
+    PvpAquaticWeapon1 = 48,
+    PvpAquaticWeapon2 = 49,
+    PvpMainhandWeapon1 = 50,
+    PvpOffhandWeapon1 = 51,
+    PvpMainhandWeapon2 = 52,
+    PvpOffhandWeapon2 = 53,
+
+    PvpAmulet = 58,
+    FishingRod = 60,
+    Relic = 67,
+    Backpack1 = 68,
     End = 69
 };
 
@@ -199,170 +241,5 @@ enum class EffectType : uint32_t {
     Alacrity = 30328
 };
 
-// Helper functions for enum conversion and validation
-namespace EnumHelpers {
-    
-    inline const char* GetProfessionName(Profession prof) {
-        switch (prof) {
-            case Profession::Guardian: return "Guardian";
-            case Profession::Warrior: return "Warrior";
-            case Profession::Engineer: return "Engineer";
-            case Profession::Ranger: return "Ranger";
-            case Profession::Thief: return "Thief";
-            case Profession::Elementalist: return "Elementalist";
-            case Profession::Mesmer: return "Mesmer";
-            case Profession::Necromancer: return "Necromancer";
-            case Profession::Revenant: return "Revenant";
-            default: return nullptr; // Return nullptr for unknown, caller should handle ID display
-        }
-    }
-
-    inline const char* GetRaceName(Race race) {
-        switch (race) {
-            case Race::Asura: return "Asura";
-            case Race::Charr: return "Charr";
-            case Race::Human: return "Human";
-            case Race::Norn: return "Norn";
-            case Race::Sylvari: return "Sylvari";
-            default: return nullptr; // Return nullptr for unknown, caller should handle ID display
-        }
-    }
-
-    inline const char* GetGadgetTypeName(GadgetType type) {
-        switch (type) {
-            case GadgetType::ResourceNode: return "Resource Node";
-            case GadgetType::Waypoint: return "Waypoint";
-            case GadgetType::Vista: return "Vista";
-            case GadgetType::Crafting: return "Crafting Station";
-            case GadgetType::AttackTarget: return "Attack Target";
-            case GadgetType::PlayerCreated: return "Player Created";
-            case GadgetType::Interact: return "Interactive";
-            case GadgetType::Door: return "Door";
-            case GadgetType::MapPortal: return "Portal";
-            default: return nullptr; // Return nullptr for unknown, caller should handle ID display
-        }
-    }
-
-    inline const char* GetRankName(CharacterRank rank) {
-        switch (rank) {
-            case CharacterRank::Normal: return "";
-            case CharacterRank::Ambient: return "Ambient";
-            case CharacterRank::Veteran: return "Veteran";
-            case CharacterRank::Elite: return "Elite";
-            case CharacterRank::Champion: return "Champion";
-            case CharacterRank::Legendary: return "Legendary";
-            default: return nullptr; // Return nullptr for unknown, caller should handle ID display
-        }
-    }
-
-    inline const char* GetAttitudeName(Attitude attitude) {
-        switch (attitude) {
-            case Attitude::Friendly: return "Friendly";
-            case Attitude::Hostile: return "Hostile";
-            case Attitude::Indifferent: return "Indifferent";
-            case Attitude::Neutral: return "Neutral";
-            default: return nullptr; // Return nullptr for unknown, caller should handle ID display
-        }
-    }
-
-    inline bool IsGatheringTool(EquipmentSlot slot) {
-        return slot == EquipmentSlot::ForagingTool ||
-               slot == EquipmentSlot::LoggingTool ||
-               slot == EquipmentSlot::MiningTool;
-    }
-
-    inline bool IsWeaponSlot(EquipmentSlot slot) {
-        return slot == EquipmentSlot::MainhandWeapon1 ||
-               slot == EquipmentSlot::OffhandWeapon1 ||
-               slot == EquipmentSlot::MainhandWeapon2 ||
-               slot == EquipmentSlot::OffhandWeapon2;
-    }
-
-    // Check if a profession is a heavy armor class
-    inline bool IsHeavyArmorProfession(Profession profession) {
-        return profession == Profession::Guardian ||
-               profession == Profession::Warrior;
-    }
-
-    // Check if a profession is a medium armor class
-    inline bool IsMediumArmorProfession(Profession profession) {
-        return profession == Profession::Engineer ||
-               profession == Profession::Ranger ||
-               profession == Profession::Thief;
-    }
-
-    // Check if a profession is a light armor class
-    inline bool IsLightArmorProfession(Profession profession) {
-        return profession == Profession::Elementalist ||
-               profession == Profession::Mesmer ||
-               profession == Profession::Necromancer ||
-               profession == Profession::Revenant;
-    }
-
-    // Get armor weight description
-    inline const char* GetArmorWeight(Profession profession) {
-        if (IsHeavyArmorProfession(profession)) return "Heavy";
-        if (IsMediumArmorProfession(profession)) return "Medium";
-        if (IsLightArmorProfession(profession)) return "Light";
-        return nullptr; // Return nullptr for unknown, caller should handle ID display
-    }
-
-    // Check if a gadget type should be considered important
-    inline bool IsImportantGadgetType(GadgetType type) {
-        switch (type) {
-            case GadgetType::ResourceNode:
-            case GadgetType::Waypoint:
-            case GadgetType::Vista:
-            case GadgetType::AttackTarget:
-            case GadgetType::Interact:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    inline bool IsDebuff(EffectType effect) {
-        switch (effect) {
-            case EffectType::Blind:
-            case EffectType::Crippled:
-            case EffectType::Chilled:
-            case EffectType::Poison:
-            case EffectType::Immobilized:
-            case EffectType::Bleeding:
-            case EffectType::Burning:
-            case EffectType::Vulnerability:
-            case EffectType::Weakness:
-            case EffectType::Fear:
-            case EffectType::Confusion:
-            case EffectType::Stun:
-            case EffectType::Torment:
-            case EffectType::Slow:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    inline bool IsBuff(EffectType effect) {
-        switch (effect) {
-            case EffectType::Protection:
-            case EffectType::Regeneration:
-            case EffectType::Swiftness:
-            case EffectType::Fury:
-            case EffectType::Vigor:
-            case EffectType::Might:
-            case EffectType::Aegis:
-            case EffectType::Stability:
-            case EffectType::Quickness:
-            case EffectType::Superspeed:
-            case EffectType::Resistance:
-            case EffectType::Alacrity:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-} // namespace EnumHelpers
 } // namespace Game
 } // namespace kx

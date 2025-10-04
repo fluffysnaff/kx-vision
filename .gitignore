@@ -361,3 +361,7 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# GW2 API Cache  
+scripts/api_cache/
+*.json.tmp

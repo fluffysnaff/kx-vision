@@ -1,11 +1,13 @@
+#include "Config.h"
+#ifndef GW2AL_BUILD // This entire file is only compiled for standalone DLL mode
+
 #include <cstdio> // Required for fclose
 #include <windows.h>
 
-#include "AddressManager.h"
-#include "AppState.h"   // Include for AppState singleton
+#include "AppLifecycleManager.h"
+#include "AppState.h"
 #include "Console.h"
-#include "Hooks.h"
-#include "../Utils/DebugLogger.h" // Include for logger initialization
+#include "../Utils/DebugLogger.h"
 
 HINSTANCE dll_handle;
 static HANDLE g_hSingleInstanceMutex = NULL;
@@ -38,32 +40,27 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
 
     LOG_INFO("KX Vision starting up...");
     
-    // Initialize AddressManager FIRST, so pointers are ready before hooks start
-    kx::AddressManager::Initialize();
-
-    if (!kx::InitializeHooks()) {
-        LOG_ERROR("Failed to initialize hooks.");
+    // Initialize the global application lifecycle manager
+    if (!kx::g_App.Initialize()) {
+        LOG_ERROR("Failed to initialize application");
+        LOG_CLEANUP();
+        CreateThread(0, 0, EjectThread, 0, 0, 0);
         return 1;
     }
-
-    LOG_INFO("KX Vision hooks initialized successfully");
-
-    // Main loop to keep the hook alive
-    while (kx::AppState::Get().IsVisionWindowOpen() && !(GetAsyncKeyState(VK_DELETE) & 0x8000)) {
-        Sleep(100); // Sleep to avoid busy-waiting
+    
+    LOG_INFO("KX Vision initialized successfully");
+    
+    // Main loop - drive the state machine
+    while (!kx::g_App.IsShutdownRequested()) {
+        kx::g_App.Update();
     }
-
-    // Signal hooks to stop processing before actual cleanup
-    kx::AppState::Get().SetShuttingDown(true);
-
-    // Give hooks a moment to recognize the flag before cleanup starts
-	// This helps prevent calls into ImGui after it's destroyed.
-    Sleep(250);
-
-    // Cleanup hooks and ImGui
-    kx::CleanupHooks();
-
-    LOG_INFO("KX Vision shutting down...");
+    
+    LOG_INFO("Shutdown requested, cleaning up...");
+    
+    // Perform shutdown
+    kx::g_App.Shutdown();
+    
+    LOG_INFO("KX Vision shut down successfully");
     
     // Cleanup logger (close log file)
     LOG_CLEANUP();
@@ -121,3 +118,5 @@ BOOL APIENTRY DllMain(HMODULE hModule,
     }
     return TRUE;
 }
+
+#endif // !GW2AL_BUILD
