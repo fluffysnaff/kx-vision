@@ -1,7 +1,8 @@
 #pragma once
 
 #include <string>
-#include "../Game/GameEnums.h"
+#include "../../Game/GameEnums.h"
+#include "../../../libs/ImGui/imgui.h"
 
 namespace kx {
 
@@ -18,12 +19,14 @@ struct GearSlotInfo {
 struct CompactStatInfo {
     std::string statName;
     int count = 0;
+    float percentage = 0.0f;
     Game::ItemRarity highestRarity = Game::ItemRarity::None;
 };
 
 struct DominantStat {
     std::string name;
     float percentage;
+    ImU32 color;
 };
 
 } // namespace kx

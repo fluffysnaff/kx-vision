@@ -93,7 +93,7 @@ namespace kx {
             }
             
             T result;
-            if (!kx::Debug::SafeRead<T>(data(), offset, result)) {
+            if (!Debug::SafeRead<T>(data(), offset, result)) {
                 return defaultValue;
             }
             
@@ -134,7 +134,7 @@ namespace kx {
             }
             
             PtrType ptr = nullptr;
-            if (!kx::Debug::SafeRead<PtrType>(data(), offset, ptr)) {
+            if (!Debug::SafeRead<PtrType>(data(), offset, ptr)) {
                 return WrapperType(nullptr);
             }
             
@@ -154,7 +154,7 @@ namespace kx {
             }
             
             ArrayType* arrayPtr = nullptr;
-            if (!kx::Debug::SafeRead<ArrayType*>(data(), offset, arrayPtr)) {
+            if (!Debug::SafeRead<ArrayType*>(data(), offset, arrayPtr)) {
                 return nullptr;
             }
             
@@ -252,7 +252,16 @@ namespace kx {
                     return T();
                 }
                 
-                return ((T(__thiscall*)(void*, Ts...))(function_ptr))(m_ptr, args...);
+                // Wrap the virtual function call in exception handling for maximum safety
+                T result = T();
+                __try {
+                    result = ((T(__thiscall*)(void*, Ts...))(function_ptr))(m_ptr, args...);
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {
+                    // Virtual function call failed - return default value
+                    return T();
+                }
+                return result;
             }
             catch (...) {
                 return T(); // Return default value on any exception

@@ -76,6 +76,7 @@ enum class GadgetType : uint32_t {
     Destructible = 1,       // Training dummy, siege practice targets
     Point = 2,              // PvP control points, event spawns
     Generic = 3,            // Generic, often invisible, trigger
+    Generic2 = 4,
     Crafting = 5,           // Crafting stations
     Door = 6,               // Interactive doors, gates
     BountyBoard = 11,       // Bounty boards
@@ -203,6 +204,53 @@ enum class BreakbarState : int {
     Recover = 1,
     Immune = 2,
     None = 3
+};
+
+// Elite Specializations (using ArenaNet API IDs)
+enum class EliteSpec : uint8_t {
+    None = 0,
+    Druid = 5,
+    Daredevil = 7,
+    Berserker = 18,
+    Dragonhunter = 27,
+    Reaper = 34,
+    Chronomancer = 40,
+    Scrapper = 43,
+    Tempest = 48,
+    Herald = 52,
+    Soulbeast = 55,
+    Weaver = 56,
+    Holosmith = 57,
+    Deadeye = 58,
+    Mirage = 59,
+    Scourge = 60,
+    Spellbreaker = 61,
+    Firebrand = 62,
+    Renegade = 63,
+    Harbinger = 64,
+    Willbender = 65,
+    Virtuoso = 66,
+    Catalyst = 67,
+    Bladesworn = 68,
+    Vindicator = 69,
+    Mechanist = 70,
+    Specter = 71,
+    Untamed = 72
+};
+
+// Mount Types
+enum class MountType : uint8_t {
+    None = 0,
+    Jackal = 1,
+    Griffon = 2,
+    Springer = 3,
+    Skimmer = 4,
+    Raptor = 5,
+    RollerBeetle = 6,
+    Warclaw = 7,
+    Skyscale = 8,
+    Skiff = 9,
+    SiegeTurtle = 10
 };
 
 // Combat Effects - Useful for buff/debuff tracking

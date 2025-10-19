@@ -52,13 +52,14 @@ namespace ESPFormatting {
             case Game::GadgetType::Prop: return "Prop";
             case Game::GadgetType::BuildSite: return "Build Site";
             case Game::GadgetType::Generic: return "Generic Trigger";
+            case Game::GadgetType::Generic2: return "Generic Trigger 2";
             default: return nullptr; // Return nullptr for unknown, caller should handle ID display
         }
     }
 
     inline const char* GetRankName(Game::CharacterRank rank) {
         switch (rank) {
-            case Game::CharacterRank::Normal: return "";
+            case Game::CharacterRank::Normal: return "Normal";
             case Game::CharacterRank::Ambient: return "Ambient";
             case Game::CharacterRank::Veteran: return "Veteran";
             case Game::CharacterRank::Elite: return "Elite";

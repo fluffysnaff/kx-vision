@@ -76,6 +76,39 @@ void TextRenderer::RenderBatch(ImDrawList* drawList, const std::vector<TextEleme
     }
 }
 
+ImVec2 TextRenderer::CalculateSize(const TextElement& element) {
+    const auto& lines = element.GetLines();
+    if (lines.empty()) {
+        return ImVec2(0, 0);
+    }
+
+    const auto& style = element.GetStyle();
+    ImFont* font = ImGui::GetFont();
+
+    float maxWidth = 0.0f;
+    float totalHeight = 0.0f;
+
+    for (const auto& line : lines) {
+        float lineWidth = CalculateLineWidth(line, style.fontSize);
+        if (lineWidth > maxWidth) {
+            maxWidth = lineWidth;
+        }
+        float lineHeight = font->CalcTextSizeA(style.fontSize, FLT_MAX, 0.0f, " ").y;
+        totalHeight += lineHeight;
+    }
+
+    if (lines.size() > 1) {
+        totalHeight += element.GetLineSpacing() * (lines.size() - 1);
+    }
+
+    if (style.enableBackground) {
+        maxWidth += style.backgroundPadding.x * 2;
+        totalHeight += style.backgroundPadding.y * 2;
+    }
+
+    return ImVec2(maxWidth, totalHeight);
+}
+
 ImVec2 TextRenderer::CalculateLinePosition(const glm::vec2& anchor, float lineWidth, float totalHeight,
                                            int lineIndex, float lineHeight, TextAnchor positioning,
                                            const glm::vec2& customOffset, TextAlignment alignment,
@@ -85,16 +118,19 @@ ImVec2 TextRenderer::CalculateLinePosition(const glm::vec2& anchor, float lineWi
     // Calculate vertical position based on anchor
     switch (positioning) {
         case TextAnchor::Above:
-            pos.y = anchor.y - totalHeight - RenderingLayout::TEXT_ANCHOR_GAP;
+            pos.y = anchor.y - totalHeight - TEXT_ANCHOR_GAP;
             break;
         case TextAnchor::Below:
-            pos.y = anchor.y + RenderingLayout::TEXT_ANCHOR_GAP;
+            pos.y = anchor.y + TEXT_ANCHOR_GAP;
             break;
         case TextAnchor::Center:
             pos.y = anchor.y - totalHeight / 2.0f;
             break;
         case TextAnchor::Custom:
             pos.y = anchor.y + customOffset.y;
+            break;
+        case TextAnchor::AbsoluteTopLeft:
+            pos.y = anchor.y;
             break;
     }
     
@@ -181,16 +217,16 @@ void TextRenderer::RenderTextLine(ImDrawList* drawList, const std::vector<TextSe
 }
 
 ImU32 TextRenderer::ApplyFade(ImU32 color, float fadeAlpha) {
-    int r = (color >> 0) & 0xFF;
-    int g = (color >> 8) & 0xFF;
-    int b = (color >> 16) & 0xFF;
-    int a = (color >> 24) & 0xFF;
+    // Extract original alpha component
+    int a = (color >> IM_COL32_A_SHIFT) & 0xFF;
     
     // Use rounding for smoother alpha transitions
     float alphaf = static_cast<float>(a) * fadeAlpha;
     unsigned int newAlpha = static_cast<unsigned int>(alphaf + 0.5f);
     newAlpha = (newAlpha > 255) ? 255 : newAlpha; // Clamp
-    return IM_COL32(r, g, b, newAlpha);
+
+    // Preserve original RGB, only change alpha
+    return (color & 0x00FFFFFF) | (static_cast<ImU32>(newAlpha) << IM_COL32_A_SHIFT);
 }
 
 float TextRenderer::CalculateLineWidth(const std::vector<TextSegment>& segments, float fontSize) {

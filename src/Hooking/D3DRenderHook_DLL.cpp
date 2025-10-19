@@ -1,14 +1,6 @@
 /**
  * @file D3DRenderHook_DLL.cpp
  * @brief DLL injection mode specific functionality
- * 
- * This file contains DLL-mode specific code:
- * - Finding the Present function pointer via dummy swap chain
- * - Creating and enabling the Present hook with MinHook
- * - DetourPresent implementation with per-frame rendering
- * - Complex WndProc for handling camera rotation conflicts
- * 
- * This file is only compiled when GW2AL_BUILD is NOT defined.
  */
 
 #include "D3DRenderHook.h"
@@ -16,16 +8,11 @@
 #include "Config.h"
 #ifndef GW2AL_BUILD // Only compile this file in DLL mode
 
-#include <windowsx.h>
 #include "../Core/AppState.h"
 #include "../Core/AppLifecycleManager.h"
 #include "../Utils/DebugLogger.h"
 #include "HookManager.h"
-#include "../Rendering/ImGuiManager.h"
-#include "../../libs/ImGui/imgui.h"
-
-// Declare the external ImGui Win32 handler
-extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+#include "../Rendering/ImGui/ImGuiManager.h"
 
 namespace kx::Hooking {
 
@@ -46,7 +33,13 @@ namespace kx::Hooking {
         }
 
         LOG_INFO("[D3DRenderHook] Present hook created and enabled.");
-        kx::AppState::Get().SetPresentHookStatus(kx::HookStatus::OK);
+        
+        // Initialize WndProc state
+        m_rightMouseDown = false;
+        m_leftMouseDown = false;
+        m_wasOverImGuiWindow = false;
+        
+        AppState::Get().SetPresentHookStatus(HookStatus::OK);
         return true;
     }
 
@@ -89,7 +82,7 @@ namespace kx::Hooking {
 
         if (hr == S_OK) {
             void** vTable = *reinterpret_cast<void***>(pSwapChain);
-            m_pTargetPresent = reinterpret_cast<Present>(vTable[8]);
+            m_pTargetPresent = reinterpret_cast<Present>(vTable[VTableIndices::DXGI_PRESENT]);
             pSwapChain->Release();
             pDevice->Release();
             success = true;
@@ -108,7 +101,7 @@ namespace kx::Hooking {
 
     HRESULT __stdcall D3DRenderHook::DetourPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
         // Check the shutdown flag FIRST
-        if (kx::AppState::Get().IsShuttingDown()) {
+        if (AppState::Get().IsShuttingDown()) {
             return m_pOriginalPresent ? m_pOriginalPresent(pSwapChain, SyncInterval, Flags) : E_FAIL;
         }
 
@@ -121,7 +114,32 @@ namespace kx::Hooking {
 
         // Per-frame logic
         if (m_isInit) {
-            RenderFrame();
+            // Create a fresh render target view every frame (like GW2AL mode)
+            // This ensures we always have a valid RTV even after resize
+            ID3D11Texture2D* pBackBuffer = nullptr;
+            ID3D11RenderTargetView* frameRenderTargetView = nullptr;
+            
+            if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer))) {
+                HRESULT hr = m_pDevice->CreateRenderTargetView(pBackBuffer, NULL, &frameRenderTargetView);
+                pBackBuffer->Release();
+                
+                if (SUCCEEDED(hr) && frameRenderTargetView) {
+                    // Get display size from swap chain
+                    DXGI_SWAP_CHAIN_DESC sd;
+                    pSwapChain->GetDesc(&sd);
+                    float displayWidth = static_cast<float>(sd.BufferDesc.Width);
+                    float displayHeight = static_cast<float>(sd.BufferDesc.Height);
+                    
+                    // Use the fresh RTV for rendering
+                    m_pLifecycleManager->RenderTick(m_hWindow, displayWidth, displayHeight, 
+                                                  m_pContext, frameRenderTargetView);
+                    
+                    // Clean up the per-frame render target view
+                    frameRenderTargetView->Release();
+                } else {
+                    LOG_WARN("[D3DRenderHook] Failed to create per-frame RTV");
+                }
+            }
         }
 
         // Call original Present function
@@ -143,39 +161,30 @@ namespace kx::Hooking {
         pSwapChain->GetDesc(&sd);
         m_hWindow = sd.OutputWindow;
 
-        // Create render target view from back buffer
-        ID3D11Texture2D* pBackBuffer = nullptr;
-        if (FAILED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer)))) {
-            LOG_ERROR("[D3DRenderHook] Failed to get back buffer");
-            if (m_pContext) { m_pContext->Release(); m_pContext = nullptr; }
-            if (m_pDevice) { m_pDevice->Release(); m_pDevice = nullptr; }
-            m_hWindow = NULL;
-            return false;
-        }
-
-        m_pDevice->CreateRenderTargetView(pBackBuffer, NULL, &m_pMainRenderTargetView);
-        pBackBuffer->Release();
+        // Note: We no longer create a cached render target view here
+        // Instead, we create a fresh RTV every frame in DetourPresent() to handle resize properly
 
         // Hook WndProc
         m_pOriginalWndProc = (WNDPROC)SetWindowLongPtr(m_hWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(WndProc));
         if (!m_pOriginalWndProc) {
             LOG_ERROR("[D3DRenderHook] Failed to hook WndProc");
-            if (m_pMainRenderTargetView) { m_pMainRenderTargetView->Release(); m_pMainRenderTargetView = nullptr; }
-            if (m_pContext) { m_pContext->Release(); m_pContext = nullptr; }
-            if (m_pDevice) { m_pDevice->Release(); m_pDevice = nullptr; }
-            m_hWindow = NULL;
+            // Release partially initialized resources before cleanup
+            if (m_pContext) {
+                m_pContext->Release();
+                m_pContext = nullptr;
+            }
+            if (m_pDevice) {
+                m_pDevice->Release();
+                m_pDevice = nullptr;
+            }
+            CleanupD3DResources(false);
             return false;
         }
 
         // Initialize ImGui
         if (!ImGuiManager::Initialize(m_pDevice, m_pContext, m_hWindow)) {
             LOG_ERROR("[D3DRenderHook] Failed to initialize ImGui");
-            SetWindowLongPtr(m_hWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(m_pOriginalWndProc));
-            m_pOriginalWndProc = nullptr;
-            if (m_pMainRenderTargetView) { m_pMainRenderTargetView->Release(); m_pMainRenderTargetView = nullptr; }
-            if (m_pContext) { m_pContext->Release(); m_pContext = nullptr; }
-            if (m_pDevice) { m_pDevice->Release(); m_pDevice = nullptr; }
-            m_hWindow = NULL;
+            CleanupD3DResources(true);
             return false;
         }
 
@@ -184,84 +193,6 @@ namespace kx::Hooking {
         return true;
     }
 
-    void D3DRenderHook::RenderFrame() {
-        // Double-check shutdown flag and ImGui context before rendering
-        if (kx::AppState::Get().IsShuttingDown() || ImGui::GetCurrentContext() == nullptr) {
-            return;
-        }
-
-        // Check if we have a lifecycle manager to get game state from
-        if (!m_pLifecycleManager) {
-            OutputDebugStringA("[D3DRenderHook::RenderFrame] No lifecycle manager set\n");
-            return;
-        }
-
-        try {
-            // Get display size
-            ImGuiIO& io = ImGui::GetIO();
-            
-            // === Centralized per-frame tick (update + render) ===
-            m_pLifecycleManager->RenderTick(m_hWindow, io.DisplaySize.x, io.DisplaySize.y, 
-                                            m_pContext, m_pMainRenderTargetView);
-        }
-        catch (const std::exception& e) {
-            OutputDebugStringA("[D3DRenderHook::RenderFrame] ImGui Exception: ");
-            OutputDebugStringA(e.what());
-            OutputDebugStringA("\n");
-        }
-        catch (...) {
-            OutputDebugStringA("[D3DRenderHook::RenderFrame] Unknown ImGui Exception\n");
-        }
-    }
-
-    LRESULT __stdcall D3DRenderHook::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-        // Complex WndProc for DLL injection mode - handle camera rotation conflicts
-        static bool rightMouseDown = false;
-        static bool leftMouseDown = false;
-        static bool wasOverImGuiWindow = false;
-
-        // Update mouse button states
-        if (uMsg == WM_RBUTTONDOWN) rightMouseDown = true;
-        else if (uMsg == WM_RBUTTONUP) rightMouseDown = false;
-        else if (uMsg == WM_LBUTTONDOWN) leftMouseDown = true;
-        else if (uMsg == WM_LBUTTONUP) leftMouseDown = false;
-
-        // Only process ImGui input if overlay is visible
-        if (m_isInit && kx::AppState::Get().IsVisionWindowOpen()) {
-            // Check if the mouse is over an ImGui window
-            bool isOverImGuiWindow = false;
-
-            if (uMsg == WM_MOUSEMOVE) {
-                isOverImGuiWindow = ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) ||
-                    ImGui::IsAnyItemHovered();
-                wasOverImGuiWindow = isOverImGuiWindow;
-            }
-            else {
-                isOverImGuiWindow = wasOverImGuiWindow;
-            }
-
-            // Special handling for left mouse button for camera rotation
-            if ((uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP) && !isOverImGuiWindow) {
-                // If LMB and not over ImGui, pass directly to game
-                return CallWindowProc(m_pOriginalWndProc, hWnd, uMsg, wParam, lParam);
-            }
-
-            // Handle other inputs - if RMB isn't down OR mouse is over ImGui window
-            if (!rightMouseDown || isOverImGuiWindow) {
-                ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
-                ImGuiIO& io = ImGui::GetIO();
-
-                // If ImGui wants the input, don't pass to the game
-                if (io.WantCaptureMouse || io.WantCaptureKeyboard) {
-                    return 1;
-                }
-            }
-        }
-
-        // Pass to original game window procedure
-        return m_pOriginalWndProc ? CallWindowProc(m_pOriginalWndProc, hWnd, uMsg, wParam, lParam)
-            : DefWindowProc(hWnd, uMsg, wParam, lParam);
-    }
 
 } // namespace kx::Hooking
 

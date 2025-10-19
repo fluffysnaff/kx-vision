@@ -1,5 +1,6 @@
 #include "DebugLogger.h"
 #include "../Core/Settings.h"
+#include "Config.h"
 #include <iostream>
 #include <sstream>
 #include <ctime>
@@ -9,7 +10,7 @@ namespace kx {
 namespace Debug {
 
 // Initialize static atomic members with thread-safe default values
-std::atomic<Logger::Level> Logger::s_minLogLevel{static_cast<Logger::Level>(kx::AppConfig::DEFAULT_LOG_LEVEL)};
+std::atomic<Logger::Level> Logger::s_minLogLevel{static_cast<Level>(AppConfig::DEFAULT_LOG_LEVEL)};
 std::atomic<size_t> Logger::s_rateLimitCacheSize{0};
 
 // Initialize rate limiting infrastructure with proper thread safety
@@ -147,7 +148,7 @@ void Logger::CleanupRateLimitCache() noexcept {
  * @param interval Minimum interval between messages with the same key
  * @return true if message should be logged, false if rate limited
  */
-bool Logger::ShouldRateLimit(const std::string& key, std::chrono::milliseconds interval) noexcept {
+bool Logger::IsRateLimited(const std::string& key, std::chrono::milliseconds interval) noexcept {
     try {
         std::lock_guard<std::mutex> lock(s_rateLimitMutex);
         
@@ -174,7 +175,7 @@ bool Logger::ShouldRateLimit(const std::string& key, std::chrono::milliseconds i
             CleanupRateLimitCache();
         }
         
-        return !shouldLog; // Return true if rate limited (should NOT log)
+        return !shouldLog; // Return true if should NOT log (is rate limited)
     }
     catch (...) {
         return false; // On error, allow logging (not rate limited)
@@ -243,7 +244,7 @@ bool Logger::ShouldLogMessage(const std::string& message) noexcept {
             interval = std::chrono::milliseconds(50); // Very aggressive for spam patterns
         }
         
-        return !ShouldRateLimit(key, interval);
+        return !IsRateLimited(key, interval);
     }
     catch (...) {
         return true; // On error, allow logging
@@ -294,13 +295,19 @@ void Logger::LogImpl(Level level, const std::string& message, const std::string&
         {
             std::lock_guard<std::mutex> lock(s_fileMutex);
             
-            // Console output
-            if (level >= ERR) {
-                std::cerr << logLine << std::endl;
-                std::cerr.flush();
+            // Console output - check if console is available
+            HWND consoleWindow = GetConsoleWindow();
+            if (consoleWindow != NULL) {
+                if (level >= ERR) {
+                    std::cerr << logLine << std::endl;
+                    std::cerr.flush();
+                } else {
+                    std::cout << logLine << std::endl;
+                    std::cout.flush();
+                }
             } else {
-                std::cout << logLine << std::endl;
-                std::cout.flush();
+                // Fallback to OutputDebugString when console not available
+                OutputDebugStringA((logLine + "\n").c_str());
             }
             
             // File output
@@ -350,7 +357,7 @@ void Logger::LogPointer(const std::string& name, const void* ptr) noexcept {
     try {
         // Create a simplified key for rate limiting pointer logs
         std::string key = "ptr_" + name;
-        if (ShouldRateLimit(key, std::chrono::milliseconds(500))) {
+        if (!IsRateLimited(key, std::chrono::milliseconds(500))) {
             return; // Rate limited
         }
         
@@ -375,7 +382,7 @@ void Logger::LogMemoryAccess(const std::string& className, const std::string& me
     try {
         // Create a simplified key for rate limiting memory access logs
         std::string key = "mem_" + className + "::" + method + "_" + std::to_string(offset);
-        if (ShouldRateLimit(key, std::chrono::milliseconds(500))) {
+        if (!IsRateLimited(key, std::chrono::milliseconds(500))) {
             return; // Rate limited
         }
         

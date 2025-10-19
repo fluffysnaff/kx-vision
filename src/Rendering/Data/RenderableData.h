@@ -7,6 +7,7 @@
 #include "../../Game/GameEnums.h"
 #include "../../../libs/ImGui/imgui.h"
 #include "PlayerRenderData.h"
+#include "ESPEntityTypes.h"
 
 namespace kx {
 
@@ -25,14 +26,18 @@ struct ColoredDetail {
 // Contains common fields shared by all entity types
 struct RenderableEntity {
     glm::vec3 position;
-    glm::vec2 screenPos;             // Pre-calculated screen position
     float visualDistance;            // Distance from camera (for scaling)
     float gameplayDistance;          // Distance from player (for display)
     bool isValid;
     const void* address;             // Const pointer since we only use for identification/comparison
+    float currentHealth;
+    float maxHealth;
+    float currentBarrier = 0.0f; // Barrier overlay for health bars
+    ESPEntityType entityType;
 
-    RenderableEntity() : position(0.0f), screenPos(0.0f), visualDistance(0.0f), gameplayDistance(0.0f),
-                         isValid(false), address(nullptr)
+    RenderableEntity() : position(0.0f), visualDistance(0.0f), gameplayDistance(0.0f),
+                         isValid(false), address(nullptr), currentHealth(0.0f), maxHealth(0.0f), currentBarrier(0.0f),
+                         entityType(ESPEntityType::Gadget) // Default, will be overwritten
     {
     }
 };
@@ -40,10 +45,10 @@ struct RenderableEntity {
 struct RenderablePlayer : public RenderableEntity {
     std::string characterName;
     std::string playerName;
-    float currentHealth;
-    float maxHealth;
     float currentEnergy;
     float maxEnergy;
+    float currentSpecialEnergy;
+    float maxSpecialEnergy;
     uint32_t level;
     uint32_t scaledLevel;
     Game::Profession profession;     // Type-safe enum instead of uint32_t
@@ -54,8 +59,9 @@ struct RenderablePlayer : public RenderableEntity {
     std::unordered_map<Game::EquipmentSlot, GearSlotInfo> gear;
     
     RenderablePlayer() : RenderableEntity(),
-                         currentHealth(0.0f), maxHealth(0.0f),
-                         currentEnergy(0.0f), maxEnergy(0.0f), level(0), scaledLevel(0),
+                         currentEnergy(0.0f), maxEnergy(0.0f),
+                         currentSpecialEnergy(0.0f), maxSpecialEnergy(0.0f),
+                         level(0), scaledLevel(0),
                          profession(Game::Profession::None), attitude(Game::Attitude::Neutral),
                          race(Game::Race::None), isLocalPlayer(false)
     {
@@ -64,14 +70,11 @@ struct RenderablePlayer : public RenderableEntity {
 
 struct RenderableNpc : public RenderableEntity {
     std::string name;
-    float currentHealth;
-    float maxHealth;
     uint32_t level;
     Game::Attitude attitude;         // Type-safe enum instead of uint32_t
     Game::CharacterRank rank;
 
     RenderableNpc() : RenderableEntity(),
-                      currentHealth(0.0f), maxHealth(0.0f),
                       level(0), attitude(Game::Attitude::Neutral), rank()
     {
     }

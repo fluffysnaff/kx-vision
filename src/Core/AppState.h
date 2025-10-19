@@ -4,6 +4,7 @@
 #include <mutex>
 #include <chrono>
 #include "Settings.h"
+#include "AdaptiveFarPlaneCalculator.h"
 
 namespace kx {
 
@@ -54,14 +55,16 @@ namespace kx {
         bool IsDebugLoggingEnabled() const { return m_settings.enableDebugLogging; }
 
         // --- Adaptive Far Plane (for "No Limit" mode) ---
-        float GetAdaptiveFarPlane() const { return m_adaptiveFarPlane; }
-        void UpdateAdaptiveFarPlane(const PooledFrameRenderData& frameData);
+        float GetAdaptiveFarPlane() const { return m_adaptiveFarPlaneCalculator.GetCurrentFarPlane(); }
+        void UpdateAdaptiveFarPlane(const PooledFrameRenderData& frameData) {
+            m_adaptiveFarPlaneCalculator.UpdateAndGetFarPlane(frameData);
+        }
 
-    private:
         // Private constructor for singleton
         AppState();
         ~AppState() = default;
 
+    private:
         // Application state members
         Settings m_settings;
         HookStatus m_presentHookStatus = HookStatus::Unknown;
@@ -72,9 +75,8 @@ namespace kx {
         #endif
         std::atomic<bool> m_isShuttingDown = false;
 
-        // Adaptive far plane for "No Limit" mode
-        float m_adaptiveFarPlane = 1500.0f; // Default value on startup
-        std::chrono::steady_clock::time_point m_lastFarPlaneRecalc;
+        // Adaptive far plane calculator
+        AdaptiveFarPlaneCalculator m_adaptiveFarPlaneCalculator;
 
         // Mutex for thread-safe access (if needed for future extensions)
         mutable std::mutex m_mutex;

@@ -1,119 +1,118 @@
 #include "ESPFilter.h"
 
 #include "AppState.h"
-#include "EntityFilter.h"
+#include "Utils/EntityFilter.h"
 #include "../Data/RenderableData.h"
+#include "../Combat/CombatStateManager.h"
+#include "../Utils/ESPConstants.h"
 
 namespace kx {
 
-float ESPFilter::CalculateDistanceFadeAlpha(float distance, bool useDistanceLimit, float distanceLimit) {
-    if (!useDistanceLimit) {
-        return 1.0f; // Fully visible when no distance limit
-    }
-    
-    // Calculate fade zone distances
-    const float fadeZoneDistance = distanceLimit * 0.11f; // RenderingEffects::FADE_ZONE_PERCENTAGE
-    const float fadeStartDistance = distanceLimit - fadeZoneDistance; // e.g., 80m for 90m limit
-    const float fadeEndDistance = distanceLimit; // e.g., 90m for 90m limit
-    
-    if (distance <= fadeStartDistance) {
-        return 1.0f; // Fully visible
-    } else if (distance >= fadeEndDistance) {
-        return 0.0f; // Fully transparent (should be culled in filter)
-    } else {
-        // Linear interpolation in fade zone
-        const float fadeProgress = (distance - fadeStartDistance) / fadeZoneDistance;
-        return 1.0f - fadeProgress; // Fade from 1.0 to 0.0
-    }
-}
+namespace { // Anonymous namespace for local helpers
 
-bool ESPFilter::IsHealthValid(float currentHealth, bool showDeadEntities) {
-    // If showing dead entities is enabled, accept all health values
-    if (showDeadEntities) {
+    bool IsDeathAnimationPlaying(const void* entityAddress, const CombatStateManager& stateManager, uint64_t now) {
+        const EntityCombatState* state = stateManager.GetState(entityAddress);
+        if (!state || state->deathTimestamp == 0) {
+            return false;
+        }
+        return (now - state->deathTimestamp) <= CombatEffects::DEATH_ANIMATION_TOTAL_DURATION_MS;
+    }
+
+    /**
+     * @brief Performs common filtering logic applicable to all entity types.
+     * @return True if the entity passes common filters, false otherwise.
+     */
+    bool PassesCommonFilters(
+        RenderableEntity* entity,
+        const glm::vec3& cameraPos,
+        const glm::vec3& playerPos,
+        const DistanceSettings& distanceSettings
+    ) {
+        if (!entity || !entity->isValid) {
+            return false;
+        }
+
+        entity->visualDistance = glm::length(entity->position - cameraPos);
+        entity->gameplayDistance = glm::length(entity->position - playerPos);
+
+        if (distanceSettings.useDistanceLimit && entity->gameplayDistance > distanceSettings.renderDistanceLimit) {
+            return false;
+        }
+
         return true;
     }
-    
-    // Otherwise, filter out dead entities (0 HP or negative HP)
-    return currentHealth > 0.0f;
-}
+
+} // anonymous namespace
 
 void ESPFilter::FilterPooledData(const PooledFrameRenderData& extractedData, Camera& camera,
-                                 PooledFrameRenderData& filteredData) {
+                                 PooledFrameRenderData& filteredData, const CombatStateManager& stateManager, uint64_t now) {
     filteredData.Reset();
     
     const auto& settings = AppState::Get().GetSettings();
     const glm::vec3 playerPos = camera.GetPlayerPosition();
     const glm::vec3 cameraPos = camera.GetCameraPosition();
     
-    // Filter players - apply same logic but work with pointers
+    // Filter players
     if (settings.playerESP.enabled) {
         filteredData.players.reserve(extractedData.players.size());
         for (RenderablePlayer* player : extractedData.players) {
-            if (!player || !player->isValid) continue;
+            // Call the common helper function first
+            if (!PassesCommonFilters(player, cameraPos, playerPos, settings.distance)) {
+                continue;
+            }
             
-            // Apply local player filter
+            // Now, perform player-specific filtering
             if (player->isLocalPlayer && !settings.playerESP.showLocalPlayer) continue;
             
-            // Apply health filter
-            if (!IsHealthValid(player->currentHealth)) continue;
+            if (player->currentHealth <= 0.0f && !IsDeathAnimationPlaying(player->address, stateManager, now)) {
+                continue;
+            }
             
-            // Calculate distances
-            player->visualDistance = glm::length(player->position - cameraPos);
-            player->gameplayDistance = glm::length(player->position - playerPos);
-            
-            // Apply distance filter based on visual distance
-            if (settings.distance.useDistanceLimit && player->gameplayDistance > settings.distance.renderDistanceLimit) continue;
-            
-            // Apply attitude-based filter
             if (!Filtering::EntityFilter::ShouldRenderPlayer(player->attitude, settings.playerESP)) continue;
             
             filteredData.players.push_back(player);
         }
     }
     
-    // Filter NPCs - apply same logic but work with pointers
+    // Filter NPCs
     if (settings.npcESP.enabled) {
         filteredData.npcs.reserve(extractedData.npcs.size());
         for (RenderableNpc* npc : extractedData.npcs) {
-            if (!npc || !npc->isValid) continue;
+            // Call the common helper function first
+            if (!PassesCommonFilters(npc, cameraPos, playerPos, settings.distance)) {
+                continue;
+            }
             
-            // Apply health filter
-            if (!IsHealthValid(npc->currentHealth, settings.npcESP.showDeadNpcs)) continue;
+            // Now, perform NPC-specific filtering
+            if (npc->currentHealth <= 0.0f && !settings.npcESP.showDeadNpcs && !IsDeathAnimationPlaying(npc->address, stateManager, now)) {
+                continue;
+            }
             
-            // Calculate distances
-            npc->visualDistance = glm::length(npc->position - cameraPos);
-            npc->gameplayDistance = glm::length(npc->position - playerPos);
-            
-            // Apply distance filter based on visual distance
-            if (settings.distance.useDistanceLimit && npc->gameplayDistance > settings.distance.renderDistanceLimit) continue;
-            
-            // Apply attitude-based filter
-            if (!Filtering::EntityFilter::ShouldRenderNpc(npc->attitude, settings.npcESP)) continue;
+            if (!Filtering::EntityFilter::ShouldRenderNpc(npc->attitude, npc->rank, settings.npcESP)) continue;
             
             filteredData.npcs.push_back(npc);
         }
     }
     
-    // Filter gadgets - apply same logic but work with pointers
+    // Filter gadgets
     if (settings.objectESP.enabled) {
         filteredData.gadgets.reserve(extractedData.gadgets.size());
         for (RenderableGadget* gadget : extractedData.gadgets) {
-            if (!gadget || !gadget->isValid) continue;
-            
-            // Calculate distances
-            gadget->visualDistance = glm::length(gadget->position - cameraPos);
-            gadget->gameplayDistance = glm::length(gadget->position - playerPos);
-            
-            // Apply distance filter based on visual distance
-            if (settings.distance.useDistanceLimit && gadget->gameplayDistance > settings.distance.renderDistanceLimit) continue;
-            
-            // Apply gadget type-based filter
-            if (!Filtering::EntityFilter::ShouldRenderGadget(gadget->type, settings.objectESP)) continue;
-            
-            // Apply depleted resource node filter
+            // Call the common helper function first
+            if (!PassesCommonFilters(gadget, cameraPos, playerPos, settings.distance)) {
+                continue;
+            }
+
+            // Now, perform gadget-specific filtering
+            if (gadget->maxHealth > 0 && gadget->currentHealth <= 0.0f && !settings.objectESP.showDeadGadgets && !IsDeathAnimationPlaying(gadget->address, stateManager, now)) {
+                continue;
+            }
+
             if (settings.hideDepletedNodes && gadget->type == Game::GadgetType::ResourceNode && !gadget->isGatherable) {
                 continue;
             }
+            
+            if (!Filtering::EntityFilter::ShouldRenderGadget(gadget->type, settings.objectESP)) continue;
             
             filteredData.gadgets.push_back(gadget);
         }

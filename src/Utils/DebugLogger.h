@@ -57,7 +57,7 @@ private:
     static std::string LevelToString(Level level) noexcept;
     static void CleanupRateLimitCache() noexcept; // Assumes caller holds s_rateLimitMutex
     static bool ShouldLogMessage(const std::string& message) noexcept;
-    static bool ShouldRateLimit(const std::string& key, std::chrono::milliseconds interval) noexcept;
+    static bool IsRateLimited(const std::string& key, std::chrono::milliseconds interval) noexcept;
     static void LogImpl(Level level, const std::string& message, const std::string& context = "") noexcept;
     static bool InitializeLogFile() noexcept;
     static std::string GetLogFilePath() noexcept;
@@ -124,7 +124,7 @@ public:
             // Then check the AppState debug logging setting
             // Only check for DEBUG level logs - errors should always be allowed
             if (level == DEBUG) {
-                return kx::AppState::Get().IsDebugLoggingEnabled();
+                return AppState::Get().IsDebugLoggingEnabled();
             }
             
             // For non-debug levels (INFO, WARNING, ERROR, CRITICAL), always allow if level passes
@@ -152,7 +152,7 @@ public:
                     break;
             }
             
-            bool guiDebugEnabled = kx::AppState::Get().IsDebugLoggingEnabled();
+            bool guiDebugEnabled = AppState::Get().IsDebugLoggingEnabled();
             
             // Force output to console regardless of current level
             std::cout << "[LOGGER] Internal log level: " << levelName 

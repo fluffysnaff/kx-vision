@@ -55,6 +55,18 @@ public:
     void Shutdown();
 
     /**
+     * @brief Performs a minimal, safe-ish save of settings.
+     * This is designed to be called from DllMain on process detach.
+     */
+    void SaveSettingsOnExit();
+
+    /**
+     * @brief Check if the application is currently shutting down
+     * @return true if shutting down, false otherwise
+     */
+    bool IsShuttingDown() const { return m_currentState == State::ShuttingDown; }
+
+    /**
      * @brief Check if shutdown has been requested
      * @return true if user requested shutdown (DELETE key or window closed)
      */
@@ -90,12 +102,13 @@ public:
     ID3D11Device* GetDevice() const;
 
     /**
-     * @brief Check and initialize services if ready (for GW2AL mode)
+     * @brief Check for state transitions (for GW2AL mode)
      * 
-     * This is called from OnPresent to check if MumbleLink is connected
-     * and player is in-game, then initializes services once.
+     * This method allows external code (like GW2AL OnPresent) to trigger
+     * state machine transitions when conditions are met. This replaces
+     * the old CheckAndInitializeServices method.
      */
-    void CheckAndInitializeServices();
+    void CheckStateTransitions();
 
     /**
      * @brief Centralized per-frame tick logic for rendering

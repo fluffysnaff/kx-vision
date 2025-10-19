@@ -3,47 +3,51 @@
 #include "../../Game/Camera.h"
 #include "ESPMath.h"
 #include "ESPConstants.h"
-#include "../Data/EntityRenderContext.h"
+#include "ESPStyling.h"
+#include "../Data/RenderableData.h"
 #include "../Renderers/ESPShapeRenderer.h"
-#include "../Core/ESPFilter.h"
 #include <algorithm>
 #include <cmath>
 
 namespace kx {
 
-std::optional<VisualProperties> EntityVisualsCalculator::Calculate(const EntityRenderContext& context,
+
+std::optional<VisualProperties> EntityVisualsCalculator::Calculate(const RenderableEntity& entity,
                                                                    Camera& camera,
                                                                    float screenWidth,
                                                                    float screenHeight) {
     VisualProperties props;
-    
+
     // 1. Check if entity is on screen
-    if (!IsEntityOnScreen(context.position, camera, screenWidth, screenHeight, props.screenPos)) {
+    if (!IsEntityOnScreen(entity.position, camera, screenWidth, screenHeight, props.screenPos)) {
         return std::nullopt; // Entity is not visible
     }
 
+    // Determine color based on entity type and attitude
+    unsigned int color = ESPStyling::GetEntityColor(entity);
+
     // 2. Calculate distance-based fade alpha
     const auto& settings = AppState::Get().GetSettings();
-    props.distanceFadeAlpha = ESPFilter::CalculateDistanceFadeAlpha(context.gameplayDistance,
-                                                                    settings.distance.useDistanceLimit,
-                                                                    settings.distance.renderDistanceLimit);
-    
+    props.distanceFadeAlpha = CalculateDistanceFadeAlpha(entity.gameplayDistance,
+                                                         settings.distance.useDistanceLimit,
+                                                         settings.distance.renderDistanceLimit);
+
     if (props.distanceFadeAlpha <= 0.0f) {
         return std::nullopt; // Entity is fully transparent
     }
-    
+
     // 3. Apply distance fade to entity color
-    props.fadedEntityColor = ESPShapeRenderer::ApplyAlphaToColor(context.color, props.distanceFadeAlpha);
+    props.fadedEntityColor = ESPShapeRenderer::ApplyAlphaToColor(color, props.distanceFadeAlpha);
 
     // 4. Calculate distance-based scale
-    props.scale = CalculateEntityScale(context.visualDistance, context.entityType);
+    props.scale = CalculateEntityScale(entity.visualDistance, entity.entityType);
 
     // 5. Calculate rendering dimensions (box or circle)
-    if (context.entityType == ESPEntityType::Gadget) {
+    if (entity.entityType == ESPEntityType::Gadget) {
         // Gadgets use circle rendering - calculate radius from base box width
         float baseRadius = settings.sizes.baseBoxWidth * EntitySizeRatios::GADGET_CIRCLE_RADIUS_RATIO;
         props.circleRadius = (std::max)(MinimumSizes::GADGET_MIN_WIDTH / 2.0f, baseRadius * props.scale);
-        
+
         // For gadgets, screenPos IS the center (no box needed)
         props.center = ImVec2(props.screenPos.x, props.screenPos.y);
         // Set dummy box values for text positioning (will be overridden for circles)
@@ -52,8 +56,8 @@ std::optional<VisualProperties> EntityVisualsCalculator::Calculate(const EntityR
     } else {
         // Players/NPCs use traditional box rendering
         float boxWidth, boxHeight;
-        CalculateEntityBoxDimensions(context.entityType, props.scale, boxWidth, boxHeight);
-        
+        CalculateEntityBoxDimensions(entity.entityType, props.scale, boxWidth, boxHeight);
+
         props.boxMin = ImVec2(props.screenPos.x - boxWidth / 2, props.screenPos.y - boxHeight);
         props.boxMax = ImVec2(props.screenPos.x + boxWidth / 2, props.screenPos.y);
         props.center = ImVec2(props.screenPos.x, props.screenPos.y - boxHeight / 2);
@@ -62,40 +66,20 @@ std::optional<VisualProperties> EntityVisualsCalculator::Calculate(const EntityR
 
     // 6. Calculate adaptive alpha
     float normalizedDistance = 0.0f;
-    props.finalAlpha = CalculateAdaptiveAlpha(context.gameplayDistance, props.distanceFadeAlpha,
-                                             settings.distance.useDistanceLimit, context.entityType,
+    props.finalAlpha = CalculateAdaptiveAlpha(entity.gameplayDistance, props.distanceFadeAlpha,
+                                             settings.distance.useDistanceLimit, entity.entityType,
                                              normalizedDistance);
-    
-    // Hostile players always render at 100% opacity (critical for PvP combat awareness)
-    bool isHostilePlayer = (context.entityType == ESPEntityType::Player && 
-                           context.attitude == Game::Attitude::Hostile);
-    if (isHostilePlayer) {
-        props.finalAlpha = 1.0f;
-    }
-    
+
+    // Removed: Hostile players now fade naturally with distance for better depth perception
+    // Red color + 2x text/health bars provide sufficient emphasis
+
     // Apply final alpha to the entity color
     props.fadedEntityColor = ESPShapeRenderer::ApplyAlphaToColor(props.fadedEntityColor, props.finalAlpha);
-    
-    // 7. Calculate scaled sizes with limits to prevent extreme values
-    // Apply hostile player multiplier for enhanced visibility (PvP combat awareness)
-    float hostileMultiplier = isHostilePlayer ? RenderingEffects::HOSTILE_PLAYER_VISUAL_MULTIPLIER : 1.0f;
-    
-    props.finalFontSize = (std::max)(settings.sizes.minFontSize, 
-                                    (std::min)(settings.sizes.baseFontSize * props.scale * hostileMultiplier, 
-                                              ScalingLimits::MAX_FONT_SIZE));
-    props.finalBoxThickness = (std::max)(ScalingLimits::MIN_BOX_THICKNESS, 
-                                        (std::min)(settings.sizes.baseBoxThickness * props.scale * hostileMultiplier, 
-                                                  ScalingLimits::MAX_BOX_THICKNESS));
-    props.finalDotRadius = (std::max)(ScalingLimits::MIN_DOT_RADIUS, 
-                                     (std::min)(settings.sizes.baseDotRadius * props.scale, 
-                                               ScalingLimits::MAX_DOT_RADIUS));
-    props.finalHealthBarWidth = (std::max)(ScalingLimits::MIN_HEALTH_BAR_WIDTH, 
-                                          (std::min)(settings.sizes.baseHealthBarWidth * props.scale * hostileMultiplier, 
-                                                    ScalingLimits::MAX_HEALTH_BAR_WIDTH));
-    props.finalHealthBarHeight = (std::max)(ScalingLimits::MIN_HEALTH_BAR_HEIGHT, 
-                                           (std::min)(settings.sizes.baseHealthBarHeight * props.scale * hostileMultiplier, 
-                                                     ScalingLimits::MAX_HEALTH_BAR_HEIGHT));
-    
+
+    // 7. Calculate scaled sizes with limits
+    EntityMultipliers multipliers = CalculateEntityMultipliers(entity);
+    CalculateFinalSizes(props, props.scale, multipliers);
+
     return props;
 }
 
@@ -267,6 +251,120 @@ float EntityVisualsCalculator::CalculateAdaptiveAlpha(float gameplayDistance, fl
         float progress = (gameplayDistance - fadeStart) / fadeRange;
         return 1.0f - (progress * (1.0f - settings.distance.playerNpcMinAlpha));
     }
+}
+
+float EntityVisualsCalculator::GetDamageNumberFontSizeMultiplier(float damageToDisplay) {
+    if (damageToDisplay <= 0.0f) {
+        return 2.0f; // Minimum multiplier for any damage
+    }
+
+    const float MIN_MULTIPLIER = 2.0f; // Minimum multiplier for any damage
+    const float MAX_MULTIPLIER = 4.0f; // Cap the multiplier
+    const float DAMAGE_TO_REACH_MAX_MULTIPLIER = 200000.0f; // Damage at which multiplier reaches MAX_MULTIPLIER
+
+    // Calculate how much additional multiplier to add based on damage
+    // The scaling range is (MAX_MULTIPLIER - MIN_MULTIPLIER)
+    // We want to scale from MIN_MULTIPLIER to MAX_MULTIPLIER over DAMAGE_TO_REACH_MAX_MULTIPLIER
+    
+    float progress = damageToDisplay / DAMAGE_TO_REACH_MAX_MULTIPLIER;
+    progress = (std::min)(progress, 1.0f); // Clamp progress to 1.0
+
+    float multiplier = MIN_MULTIPLIER + progress * (MAX_MULTIPLIER - MIN_MULTIPLIER);
+    
+    return multiplier; // No need for std::min with MAX_MULTIPLIER here, as progress is clamped
+}
+
+// Helper method implementations
+float EntityVisualsCalculator::GetRankMultiplier(Game::CharacterRank rank) {
+    switch (rank) {
+        case Game::CharacterRank::Veteran:    return 1.25f;
+        case Game::CharacterRank::Elite:      return 1.5f;
+        case Game::CharacterRank::Champion:   return 1.75f;
+        case Game::CharacterRank::Legendary:  return 2.0f;
+        default:                              return 1.0f;
+    }
+}
+
+float EntityVisualsCalculator::GetGadgetHealthMultiplier(float maxHealth) {
+    if (maxHealth >= 1000000.0f) return 2.0f;
+    if (maxHealth >= 500000.0f) return 1.75f;
+    if (maxHealth >= 250000.0f) return 1.5f;
+    if (maxHealth >= 100000.0f) return 1.25f;
+    return 1.0f;
+}
+
+float EntityVisualsCalculator::CalculateFinalSize(float baseSize, float scale, float minLimit, float maxLimit, float multiplier) {
+    float scaledSize = baseSize * scale * multiplier;
+    return std::clamp(scaledSize, minLimit, maxLimit);
+}
+
+float EntityVisualsCalculator::CalculateDistanceFadeAlpha(float distance, bool useDistanceLimit, float distanceLimit) {
+    if (!useDistanceLimit) {
+        return 1.0f; // Fully visible when no distance limit
+    }
+    
+    // Calculate fade zone distances
+    const float fadeZonePercentage = 0.11f; // RenderingEffects::FADE_ZONE_PERCENTAGE
+    const float fadeZoneDistance = distanceLimit * fadeZonePercentage;
+    const float fadeStartDistance = distanceLimit - fadeZoneDistance; // e.g., 80m for 90m limit
+    const float fadeEndDistance = distanceLimit; // e.g., 90m for 90m limit
+    
+    if (distance <= fadeStartDistance) {
+        return 1.0f; // Fully visible
+    } else if (distance >= fadeEndDistance) {
+        return 0.0f; // Fully transparent (should be culled in filter)
+    } else {
+        // Linear interpolation in fade zone
+        const float fadeProgress = (distance - fadeStartDistance) / fadeZoneDistance;
+        return 1.0f - fadeProgress; // Fade from 1.0 to 0.0
+    }
+}
+
+EntityMultipliers EntityVisualsCalculator::CalculateEntityMultipliers(const RenderableEntity& entity) {
+    EntityMultipliers multipliers;
+    
+    // Calculate hostile multiplier
+    if (entity.entityType == ESPEntityType::Player) {
+        const auto* player = static_cast<const RenderablePlayer*>(&entity);
+        if (player->attitude == Game::Attitude::Hostile) {
+            multipliers.hostile = RenderingEffects::HOSTILE_PLAYER_VISUAL_MULTIPLIER;
+        }
+    }
+    
+    // Calculate rank multiplier
+    if (entity.entityType == ESPEntityType::NPC) {
+        const auto* npc = static_cast<const RenderableNpc*>(&entity);
+        multipliers.rank = GetRankMultiplier(npc->rank);
+    }
+    
+    // Calculate gadget health multiplier
+    if (entity.entityType == ESPEntityType::Gadget) {
+        multipliers.gadgetHealth = GetGadgetHealthMultiplier(entity.maxHealth);
+    }
+    
+    // Calculate combined health bar multiplier
+    multipliers.healthBar = multipliers.hostile * multipliers.rank * multipliers.gadgetHealth;
+    
+    return multipliers;
+}
+
+void EntityVisualsCalculator::CalculateFinalSizes(VisualProperties& props, 
+                                                 float scale,
+                                                 const EntityMultipliers& multipliers) {
+    const auto& settings = AppState::Get().GetSettings();
+    
+    // Font size uses hostile multiplier (combat-critical: keep 2x for readability)
+    props.finalFontSize = CalculateFinalSize(settings.sizes.baseFontSize, scale, settings.sizes.minFontSize, ScalingLimits::MAX_FONT_SIZE, multipliers.hostile);
+    
+    // Box thickness NO hostile multiplier (reduce visual clutter)
+    props.finalBoxThickness = CalculateFinalSize(settings.sizes.baseBoxThickness, scale, ScalingLimits::MIN_BOX_THICKNESS, ScalingLimits::MAX_BOX_THICKNESS, 1.0f);
+    
+    // Dot radius never uses hostile multiplier
+    props.finalDotRadius = CalculateFinalSize(settings.sizes.baseDotRadius, scale, ScalingLimits::MIN_DOT_RADIUS, ScalingLimits::MAX_DOT_RADIUS);
+
+    // Health bar uses combined multiplier (combat-critical: keep 2x for health visibility)
+    props.finalHealthBarWidth = CalculateFinalSize(settings.sizes.baseHealthBarWidth, scale, ScalingLimits::MIN_HEALTH_BAR_WIDTH, ScalingLimits::MAX_HEALTH_BAR_WIDTH, multipliers.healthBar);
+    props.finalHealthBarHeight = CalculateFinalSize(settings.sizes.baseHealthBarHeight, scale, ScalingLimits::MIN_HEALTH_BAR_HEIGHT, ScalingLimits::MAX_HEALTH_BAR_HEIGHT, multipliers.healthBar);
 }
 
 } // namespace kx

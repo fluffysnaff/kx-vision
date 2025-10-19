@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Game/GameEnums.h"
+#include "../../Game/GameEnums.h"
 #include "../Core/AppState.h"
 
 namespace kx {
@@ -10,40 +10,50 @@ namespace Filtering {
  * @brief Enhanced filtering utilities using the new game enums
  */
 class EntityFilter {
+    static bool ShouldRenderByAttitude(Game::Attitude attitude, const AttitudeSettings& settings) {
+        switch (attitude) {
+            case Game::Attitude::Friendly:    return settings.showFriendly;
+            case Game::Attitude::Hostile:     return settings.showHostile;
+            case Game::Attitude::Neutral:     return settings.showNeutral;
+            case Game::Attitude::Indifferent: return settings.showIndifferent;
+            default:                          return true;
+        }
+    }
+
 public:
     /**
      * @brief Check if a player should be rendered based on attitude
      */
     static bool ShouldRenderPlayer(Game::Attitude attitude, const PlayerEspSettings& settings) {
-        switch (attitude) {
-            case Game::Attitude::Friendly:
-                return settings.showFriendly;
-            case Game::Attitude::Hostile:
-                return settings.showHostile;
-            case Game::Attitude::Neutral:
-                return settings.showNeutral;
-            case Game::Attitude::Indifferent:
-                return settings.showIndifferent;
-            default:
-                return true; // Show unknown attitudes by default
-        }
+        // Just call the helper directly
+        return ShouldRenderByAttitude(attitude, settings);
     }
 
     /**
-     * @brief Check if an NPC should be rendered based on attitude
+     * @brief Check if an NPC should be rendered based on attitude and rank
      */
-    static bool ShouldRenderNpc(Game::Attitude attitude, const NpcEspSettings& settings) {
-        switch (attitude) {
-            case Game::Attitude::Friendly:
-                return settings.showFriendly;
-            case Game::Attitude::Hostile:
-                return settings.showHostile;
-            case Game::Attitude::Neutral:
-                return settings.showNeutral;
-            case Game::Attitude::Indifferent:
-                return settings.showIndifferent;
+    static bool ShouldRenderNpc(Game::Attitude attitude, Game::CharacterRank rank, const NpcEspSettings& settings) {
+        // Attitude filter first
+        if (!ShouldRenderByAttitude(attitude, settings)) {
+            return false;
+        }
+
+        // Rank filter (this part remains unchanged)
+        switch (rank) {
+            case Game::CharacterRank::Legendary:
+                return settings.showLegendary;
+            case Game::CharacterRank::Champion:
+                return settings.showChampion;
+            case Game::CharacterRank::Elite:
+                return settings.showElite;
+            case Game::CharacterRank::Veteran:
+                return settings.showVeteran;
+            case Game::CharacterRank::Ambient:
+                return settings.showAmbient;
+            case Game::CharacterRank::Normal:
+				return settings.showNormal;
             default:
-                return true; // Show unknown attitudes by default
+                return true;
         }
     }
 
@@ -86,6 +96,8 @@ public:
                 return settings.showRifts;
             case Game::GadgetType::Generic:
                 return settings.showGeneric;
+            case Game::GadgetType::Generic2:
+                return settings.showGeneric2;
             default:
                 return settings.showUnknown;
         }

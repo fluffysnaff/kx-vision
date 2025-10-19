@@ -2,11 +2,60 @@
 
 #include <string>
 #include <vector>
-#include "../../../libs/glm/vec3.hpp"
 #include "RenderableData.h"
-#include "ESPData.h"
+#include "ESPEntityTypes.h"
+#include "../../Game/GameEnums.h"
 
 namespace kx {
+
+/**
+ * @brief Holds all transient, frame-specific animation state for health bars.
+ *
+ * This data is calculated once by the ESPContextFactory and then consumed by
+ * the ESPHealthBarRenderer, which becomes a "dumb" component that only draws
+ * what it's given. This decouples rendering from state calculation.
+ */
+struct HealthBarAnimationState {
+    // Overall fade alpha for the entire bar (combines distance, death, etc.)
+    float healthBarFadeAlpha = 1.0f;
+
+    // --- Damage Accumulator ---
+    // The percentage of the bar the damage accumulator should cover (0 if inactive)
+    float damageAccumulatorPercent = 0.0f;
+    // Alpha for the damage accumulator's fade-out animation
+    float damageAccumulatorAlpha = 1.0f;
+
+    float damageNumberToDisplay = 0.0f;
+    float damageNumberAlpha = 0.0f;
+    float damageNumberYOffset = 0.0f; // For the upward scroll effect
+
+    // --- Healing Overlay ---
+    // The starting health percentage for the current heal overlay (0 if inactive)
+    float healOverlayStartPercent = 0.0f;
+    // The ending health percentage for the current heal overlay
+    float healOverlayEndPercent = 0.0f;
+    // Alpha multiplier for the heal overlay's fade-out animation
+    float healOverlayAlpha = 0.0f;
+
+    // --- Flashes ---
+    // Alpha for the instant damage flash
+    float damageFlashAlpha = 0.0f;
+    // The health percentage where the damage flash should start
+    float damageFlashStartPercent = 0.0f;
+    // Alpha for the instant heal flash
+    float healFlashAlpha = 0.0f;
+
+    // --- Barrier ---
+    // The animated barrier value for smooth transitions
+    float animatedBarrier = 0.0f;
+
+    // --- Death Animation ---
+    // The alpha of the death "burst" effect
+    float deathBurstAlpha = 0.0f;
+    // The width of the death "burst" effect, from 0.0 to 1.0
+    float deathBurstWidth = 0.0f;
+};
+
 
 /**
  * @brief Unified context structure for entity rendering
@@ -31,9 +80,6 @@ struct EntityRenderContext {
     /** World position for real-time screen projection */
     const glm::vec3& position;
     
-    /** Visual distance (from camera to entity) */
-    float visualDistance;
-    
     /** Gameplay distance (used for filtering and display) */
     float gameplayDistance;
     
@@ -41,10 +87,10 @@ struct EntityRenderContext {
     unsigned int color;
     
     /** Pre-built detail strings with colors (level, profession, etc.) */
-    const std::vector<ColoredDetail>& details;
+    std::vector<ColoredDetail> details;
     
-    /** Health percentage [0.0 - 1.0], or -1.0f if not applicable */
-    float healthPercent;
+    /** Calculated live burst DPS for the current damage window */
+    float burstDPS;
 
     // ===== Style and Settings =====
     
@@ -62,6 +108,10 @@ struct EntityRenderContext {
     
     /** Whether to render health bar */
     bool renderHealthBar;
+    /** Whether to render health percentage text */
+    bool renderHealthPercentage;
+    /** Whether to render energy bar */
+    bool renderEnergyBar;
     
     /** Whether to render player name (separate from details) */
     bool renderPlayerName;
@@ -71,22 +121,17 @@ struct EntityRenderContext {
     
     /** Attitude/relationship for NPCs and players (used for health bar coloring) */
     Game::Attitude attitude;
+
+    // ===== Entity-Specific Data =====
     
-    // ===== Screen Dimensions =====
-    
-    /** Screen width for bounds checking */
-    float screenWidth;
-    
-    /** Screen height for bounds checking */
-    float screenHeight;
-    
-    // ===== Player-Specific Data =====
-    
+    /** Pointer to the original entity for state lookup */
+    const RenderableEntity* entity;
+
     /** Player name (empty string for non-players) */
     const std::string& playerName;
-    
-    /** Pointer to full player object for summary rendering (nullptr for non-players) */
-    const RenderablePlayer* player;
+
+    /** Transient animation state for the health bar */
+    HealthBarAnimationState healthBarAnim;
 };
 
 } // namespace kx

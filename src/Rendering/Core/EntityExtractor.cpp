@@ -1,6 +1,6 @@
 #include "EntityExtractor.h"
-#include "Utils/ESPConstants.h"
-#include "Utils/ESPFormatting.h"
+#include "../Utils/ESPConstants.h"
+#include "../Utils/ESPFormatting.h"
 #include "../../Game/GameEnums.h"
 #include "../../Utils/StringHelpers.h"
 #include <vector>
@@ -13,22 +13,13 @@ namespace kx {
         void* localPlayerPtr) {
 
         // --- Validation and Position ---
-        ReClass::AgChar agent = inCharacter.GetAgent();
-        if (!agent) return false;
-
-        ReClass::CoChar coChar = agent.GetCoChar();
-        if (!coChar) return false;
-
-        glm::vec3 gameWorldPos = coChar.GetVisualPosition();
-        if (gameWorldPos.x == 0.0f && gameWorldPos.y == 0.0f && gameWorldPos.z == 0.0f) return false;
+        glm::vec3 gamePos;
+        if (!ValidateAndExtractGamePosition(inCharacter, gamePos)) return false;
 
         // --- Populate Core Data ---
-        outPlayer.position = glm::vec3(
-            gameWorldPos.x / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR,
-            gameWorldPos.z / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR,
-            gameWorldPos.y / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR
-        );
+        outPlayer.position = TransformGamePositionToMumble(gamePos);
         outPlayer.isValid = true;
+        outPlayer.entityType = ESPEntityType::Player;
         outPlayer.address = inCharacter.data();
         outPlayer.isLocalPlayer = (outPlayer.address == localPlayerPtr);
         if (playerName) {
@@ -37,15 +28,20 @@ namespace kx {
 
         // --- Health & Energy ---
         ReClass::ChCliHealth health = inCharacter.GetHealth();
-        if (health) {
-            outPlayer.currentHealth = health.GetCurrent();
-            outPlayer.maxHealth = health.GetMax();
-        }
+        ExtractHealthData(outPlayer, health);
 
+        // Dodge Energy
         ReClass::ChCliEnergies energies = inCharacter.GetEnergies();
         if (energies) {
             outPlayer.currentEnergy = energies.GetCurrent();
             outPlayer.maxEnergy = energies.GetMax();
+        }
+
+        // Special Energy
+        ReClass::ChCliSpecialEnergies specialEnergies = inCharacter.GetSpecialEnergies();
+        if (specialEnergies) {
+            outPlayer.currentSpecialEnergy = specialEnergies.GetCurrent();
+            outPlayer.maxSpecialEnergy = specialEnergies.GetMax();
         }
 
         // --- Core Stats ---
@@ -70,30 +66,18 @@ namespace kx {
     bool EntityExtractor::ExtractNpc(RenderableNpc& outNpc, const ReClass::ChCliCharacter& inCharacter) {
 
         // --- Validation and Position ---
-        ReClass::AgChar agent = inCharacter.GetAgent();
-        if (!agent) return false;
-
-        ReClass::CoChar coChar = agent.GetCoChar();
-        if (!coChar) return false;
-
-        glm::vec3 gameWorldPos = coChar.GetVisualPosition();
-        if (gameWorldPos.x == 0.0f && gameWorldPos.y == 0.0f && gameWorldPos.z == 0.0f) return false;
+        glm::vec3 gamePos;
+        if (!ValidateAndExtractGamePosition(inCharacter, gamePos)) return false;
 
         // --- Populate Core Data ---
-        outNpc.position = glm::vec3(
-            gameWorldPos.x / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR,
-            gameWorldPos.z / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR,
-            gameWorldPos.y / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR
-        );
+        outNpc.position = TransformGamePositionToMumble(gamePos);
         outNpc.isValid = true;
+        outNpc.entityType = ESPEntityType::NPC;
         outNpc.address = inCharacter.data();
 
         // --- Health ---
         ReClass::ChCliHealth health = inCharacter.GetHealth();
-        if (health) {
-            outNpc.currentHealth = health.GetCurrent();
-            outNpc.maxHealth = health.GetMax();
-        }
+        ExtractHealthData(outNpc, health);
 
         // --- Stats ---
         ReClass::ChCliCoreStats coreStats = inCharacter.GetCoreStats();
@@ -109,25 +93,20 @@ namespace kx {
     bool EntityExtractor::ExtractGadget(RenderableGadget& outGadget, const ReClass::GdCliGadget& inGadget) {
 
         // --- Validation and Position ---
-        ReClass::AgKeyFramed agKeyFramed = inGadget.GetAgKeyFramed();
-        if (!agKeyFramed) return false;
-
-        ReClass::CoKeyFramed coKeyFramed = agKeyFramed.GetCoKeyFramed();
-        if (!coKeyFramed) return false;
-
-        glm::vec3 gameWorldPos = coKeyFramed.GetPosition();
-        if (gameWorldPos.x == 0.0f && gameWorldPos.y == 0.0f && gameWorldPos.z == 0.0f) return false;
+        glm::vec3 gamePos;
+        if (!ValidateAndExtractGamePosition(inGadget, gamePos)) return false;
 
         // --- Populate Core Data ---
-        outGadget.position = glm::vec3(
-            gameWorldPos.x / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR,
-            gameWorldPos.z / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR,
-            gameWorldPos.y / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR
-        );
+        outGadget.position = TransformGamePositionToMumble(gamePos);
         outGadget.isValid = true;
+        outGadget.entityType = ESPEntityType::Gadget;
         outGadget.address = inGadget.data();
         outGadget.type = inGadget.GetGadgetType();
         outGadget.isGatherable = inGadget.IsGatherable();
+
+        // --- Health ---
+        ReClass::ChCliHealth health = inGadget.GetHealth();
+        ExtractHealthData(outGadget, health);
 
         if (outGadget.type == Game::GadgetType::ResourceNode) {
             outGadget.resourceType = inGadget.GetResourceNodeType();
@@ -168,8 +147,51 @@ namespace kx {
                 if (stat) slotInfo.statId = stat.GetId();
             }
 
-            outPlayer.gear[slotEnum] = slotInfo;
-        }
+        outPlayer.gear[slotEnum] = slotInfo;
     }
+}
+
+// Helper method implementations
+bool EntityExtractor::ValidateAndExtractGamePosition(const ReClass::ChCliCharacter& character, glm::vec3& outGamePos) {
+    ReClass::AgChar agent = character.GetAgent();
+    if (!agent) return false;
+
+    ReClass::CoChar coChar = agent.GetCoChar();
+    if (!coChar) return false;
+
+    outGamePos = coChar.GetVisualPosition();
+    if (outGamePos.x == 0.0f && outGamePos.y == 0.0f && outGamePos.z == 0.0f) return false;
+
+    return true;
+}
+
+bool EntityExtractor::ValidateAndExtractGamePosition(const ReClass::GdCliGadget& gadget, glm::vec3& outGamePos) {
+    ReClass::AgKeyFramed agKeyFramed = gadget.GetAgKeyFramed();
+    if (!agKeyFramed) return false;
+
+    ReClass::CoKeyFramed coKeyFramed = agKeyFramed.GetCoKeyFramed();
+    if (!coKeyFramed) return false;
+
+    outGamePos = coKeyFramed.GetPosition();
+    if (outGamePos.x == 0.0f && outGamePos.y == 0.0f && outGamePos.z == 0.0f) return false;
+
+    return true;
+}
+
+glm::vec3 EntityExtractor::TransformGamePositionToMumble(const glm::vec3& gamePos) {
+    return glm::vec3(
+        gamePos.x / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR,
+        gamePos.z / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR,
+        gamePos.y / CoordinateTransform::GAME_TO_MUMBLE_SCALE_FACTOR
+    );
+}
+
+void EntityExtractor::ExtractHealthData(RenderableEntity& entity, const ReClass::ChCliHealth& health) {
+    if (health) {
+        entity.currentHealth = health.GetCurrent();
+        entity.maxHealth = health.GetMax();
+        entity.currentBarrier = health.GetBarrier();
+    }
+}
 
 } // namespace kx

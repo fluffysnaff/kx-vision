@@ -5,6 +5,8 @@
 #include "../../Game/Generated/StatData.h"
 #include "../../../libs/ImGui/imgui.h"
 #include <algorithm>
+#include <sstream>
+#include <iomanip>
 
 #include "ESPStyling.h"
 
@@ -20,11 +22,7 @@ std::vector<ColoredDetail> ESPPlayerDetailsBuilder::BuildPlayerDetails(const Ren
     
     details.reserve(16); // Future-proof: generous reserve for adding new fields
 
-    if (!player->playerName.empty()) {
-        details.push_back({ "Player: " + player->playerName, ESPColors::DEFAULT_TEXT });
-    }
-
-    if (player->level > 0) {
+    if (settings.showDetailLevel && player->level > 0) {
         std::string levelText = "Level: " + std::to_string(player->level);
         if (player->scaledLevel != player->level && player->scaledLevel > 0) {
             levelText += " (" + std::to_string(player->scaledLevel) + ")";
@@ -32,27 +30,38 @@ std::vector<ColoredDetail> ESPPlayerDetailsBuilder::BuildPlayerDetails(const Ren
         details.push_back({ levelText, ESPColors::DEFAULT_TEXT });
     }
 
-    if (player->profession != Game::Profession::None) {
+    if (settings.showDetailProfession && player->profession != Game::Profession::None) {
         const char* profName = ESPFormatting::GetProfessionName(player->profession);
         details.push_back({ "Prof: " + (profName ? std::string(profName) : "ID: " + std::to_string(static_cast<uint32_t>(player->profession))), ESPColors::DEFAULT_TEXT });
     }
 
     // Display player attitude
-    const char* attitudeName = ESPFormatting::GetAttitudeName(player->attitude);
-    details.push_back({ "Attitude: " + (attitudeName ? std::string(attitudeName) : "Unknown"), ESPColors::DEFAULT_TEXT });
+    if (settings.showDetailAttitude) {
+        const char* attitudeName = ESPFormatting::GetAttitudeName(player->attitude);
+        details.push_back({ "Attitude: " + (attitudeName ? std::string(attitudeName) : "Unknown"), ESPColors::DEFAULT_TEXT });
+	}
 
-    if (player->race != Game::Race::None) {
+    if (settings.showDetailRace && player->race != Game::Race::None) {
         const char* raceName = ESPFormatting::GetRaceName(player->race);
         details.push_back({ "Race: " + (raceName ? std::string(raceName) : "ID: " + std::to_string(static_cast<uint8_t>(player->race))), ESPColors::DEFAULT_TEXT });
     }
 
-    if (player->maxHealth > 0) {
+    if (settings.showDetailHp && player->maxHealth > 0) {
         details.push_back({ "HP: " + std::to_string(static_cast<int>(player->currentHealth)) + "/" + std::to_string(static_cast<int>(player->maxHealth)), ESPColors::DEFAULT_TEXT });
     }
 
-    if (player->maxEnergy > 0) {
+    if (settings.showDetailEnergy && player->maxEnergy > 0) {
         const int energyPercent = static_cast<int>((player->currentEnergy / player->maxEnergy) * 100.0f);
         details.push_back({ "Energy: " + std::to_string(static_cast<int>(player->currentEnergy)) + "/" + std::to_string(static_cast<int>(player->maxEnergy)) + " (" + std::to_string(energyPercent) + "%)", ESPColors::DEFAULT_TEXT });
+    }
+
+    if (settings.showDetailPosition) {
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(1)
+            << "Pos: (" << player->position.x
+            << ", " << player->position.y
+            << ", " << player->position.z << ")";
+        details.push_back({ oss.str(), ESPColors::DEFAULT_TEXT });
     }
 
     if (showDebugAddresses) {
@@ -71,11 +80,13 @@ std::vector<CompactStatInfo> ESPPlayerDetailsBuilder::BuildCompactGearSummary(co
 
     // Use a map to group stats and find the highest rarity for each
     std::map<std::string, CompactStatInfo> statSummary;
+    int totalItems = 0;
     for (const auto& pair : player->gear) {
         const GearSlotInfo& info = pair.second;
         if (info.statId > 0) {
-            auto statIt = kx::data::stat::DATA.find(info.statId);
-            if (statIt != kx::data::stat::DATA.end()) {
+            totalItems++;
+            auto statIt = data::stat::DATA.find(info.statId);
+            if (statIt != data::stat::DATA.end()) {
                 std::string statName = statIt->second.name;
 
                 // Increment count
@@ -94,17 +105,31 @@ std::vector<CompactStatInfo> ESPPlayerDetailsBuilder::BuildCompactGearSummary(co
         return {};
     }
 
-    // Convert the map to a vector for ordered rendering
+    // Convert the map to a vector and calculate percentages
     std::vector<CompactStatInfo> result;
     result.reserve(statSummary.size());
-    for (const auto& pair : statSummary) {
-        result.push_back(pair.second);
+    if (totalItems > 0) {
+        for (auto& pair : statSummary) {
+            pair.second.percentage = (static_cast<float>(pair.second.count) / totalItems) * 100.0f;
+            result.push_back(pair.second);
+        }
     }
+
+    // Sort by percentage descending
+    std::sort(result.begin(), result.end(), [](const CompactStatInfo& a, const CompactStatInfo& b) {
+        return a.percentage > b.percentage;
+    });
+
+    // Keep only top 3
+    if (result.size() > 3) {
+        result.resize(3);
+    }
+    
     return result;
 }
 
-std::map<kx::data::ApiAttribute, int> ESPPlayerDetailsBuilder::BuildAttributeSummary(const RenderablePlayer* player) {
-    std::map<kx::data::ApiAttribute, int> attributeCounts;
+std::map<data::ApiAttribute, int> ESPPlayerDetailsBuilder::BuildAttributeSummary(const RenderablePlayer* player) {
+    std::map<data::ApiAttribute, int> attributeCounts;
     if (!player || player->gear.empty()) {
         return attributeCounts;
     }
@@ -112,8 +137,8 @@ std::map<kx::data::ApiAttribute, int> ESPPlayerDetailsBuilder::BuildAttributeSum
     for (const auto& pair : player->gear) {
         const GearSlotInfo& info = pair.second;
         if (info.statId > 0) {
-            auto statIt = kx::data::stat::DATA.find(info.statId);
-            if (statIt != kx::data::stat::DATA.end()) {
+            auto statIt = data::stat::DATA.find(info.statId);
+            if (statIt != data::stat::DATA.end()) {
                 for (const auto& attr : statIt->second.attributes) {
                     attributeCounts[attr.attribute]++;
                 }
@@ -127,7 +152,7 @@ std::vector<DominantStat> ESPPlayerDetailsBuilder::BuildDominantStats(const Rend
     std::vector<DominantStat> result;
 
     // 1. Get the raw attribute counts
-    std::map<kx::data::ApiAttribute, int> attributeCounts = BuildAttributeSummary(player);
+    std::map<data::ApiAttribute, int> attributeCounts = BuildAttributeSummary(player);
     if (attributeCounts.empty()) {
         return result;
     }
@@ -139,29 +164,31 @@ std::vector<DominantStat> ESPPlayerDetailsBuilder::BuildDominantStats(const Rend
     }
     if (totalAttributes == 0) return result;
 
-    // 3. Convert to a vector of DominantStat with percentages
+    // 3. Convert to a vector of DominantStat with percentages and tactical colors
     std::vector<DominantStat> allStats;
     allStats.reserve(attributeCounts.size());
     for (const auto& pair : attributeCounts) {
         const char* name = "??";
         switch (pair.first) {
-        case kx::data::ApiAttribute::Power:           name = "Power"; break;
-        case kx::data::ApiAttribute::Precision:       name = "Precision"; break;
-        case kx::data::ApiAttribute::Toughness:       name = "Toughness"; break;
-        case kx::data::ApiAttribute::Vitality:        name = "Vitality"; break;
-        case kx::data::ApiAttribute::CritDamage:      name = "Ferocity"; break;
-        case kx::data::ApiAttribute::Healing:         name = "Healing"; break;
-        case kx::data::ApiAttribute::ConditionDamage: name = "Condi Dmg"; break;
-        case kx::data::ApiAttribute::BoonDuration:    name = "Boon Dmg"; break;
-        case kx::data::ApiAttribute::ConditionDuration: name = "Condi Dura"; break;
+        case data::ApiAttribute::Power:           name = "Power"; break;
+        case data::ApiAttribute::Precision:       name = "Precision"; break;
+        case data::ApiAttribute::Toughness:       name = "Toughness"; break;
+        case data::ApiAttribute::Vitality:        name = "Vitality"; break;
+        case data::ApiAttribute::CritDamage:      name = "Ferocity"; break;
+        case data::ApiAttribute::Healing:         name = "Healing"; break;
+        case data::ApiAttribute::ConditionDamage: name = "Condi Dmg"; break;
+        case data::ApiAttribute::BoonDuration:    name = "Boon Dura"; break;
+        case data::ApiAttribute::ConditionDuration: name = "Condi Dura"; break;
         }
-        allStats.push_back({ name, (pair.second / totalAttributes) * 100.0f });
+        
+        // Assign the name, percentage, AND the new tactical color
+        allStats.push_back({ name, (pair.second / totalAttributes) * 100.0f, ESPStyling::GetTacticalColor(pair.first) });
     }
 
     // 4. Sort the vector in descending order of percentage
     std::sort(allStats.begin(), allStats.end(), [](const DominantStat& a, const DominantStat& b) {
         return a.percentage > b.percentage;
-        });
+    });
 
     // 5. Return the top 3
     result.reserve(3);
@@ -207,8 +234,8 @@ std::vector<ColoredDetail> ESPPlayerDetailsBuilder::BuildGearDetails(const Rende
 
             std::string statName = "No Stats";
             if (info.statId > 0) {
-                auto statIt = kx::data::stat::DATA.find(info.statId);
-                if (statIt != kx::data::stat::DATA.end()) {
+                auto statIt = data::stat::DATA.find(info.statId);
+                if (statIt != data::stat::DATA.end()) {
                     statName = statIt->second.name;
                 }
                 else {
@@ -220,6 +247,20 @@ std::vector<ColoredDetail> ESPPlayerDetailsBuilder::BuildGearDetails(const Rende
         }
     }
     return gearDetails;
+}
+
+Game::ItemRarity ESPPlayerDetailsBuilder::GetHighestRarity(const RenderablePlayer* player) {
+    if (!player || player->gear.empty()) {
+        return Game::ItemRarity::None;
+    }
+
+    Game::ItemRarity highestRarity = Game::ItemRarity::None;
+    for (const auto& pair : player->gear) {
+        if (pair.second.rarity > highestRarity) {
+            highestRarity = pair.second.rarity;
+        }
+    }
+    return highestRarity;
 }
 
 } // namespace kx

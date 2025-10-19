@@ -101,14 +101,25 @@ namespace Offsets {
     struct ChCliHealth {
         static constexpr uintptr_t CURRENT = 0x0C;  // float current health
         static constexpr uintptr_t MAX = 0x10;      // float maximum health
+        static constexpr uintptr_t HEALTH_REGEN_RATE = 0x14; // float health regeneration rate (0 in combat, often 10% of max HP otherwise)
+        static constexpr uintptr_t BARRIER = 0x28;  // float current barrier
     };
 
     /**
-     * @brief ChCliEnergies - Character energy/endurance management
+     * @brief ChCliSpecialEnergies - Character mount/special energy management
      */
-    struct ChCliEnergies {
+    struct ChCliSpecialEnergies {
         static constexpr uintptr_t CURRENT = 0x0C;  // float current energy
         static constexpr uintptr_t MAX = 0x10;      // float maximum energy
+    };
+
+    /**
+     * @brief ChCliEnergies - Character dodge/endurance management
+     */
+    struct ChCliEnergies {
+        static constexpr uintptr_t CURRENT = 0x10;  // float current endurance
+        static constexpr uintptr_t MAX = 0x14;      // float maximum endurance
+        // Note: A second pool might exist at offsets 0x18/0x20
     };
 
     /**
@@ -173,7 +184,8 @@ namespace Offsets {
         static constexpr uintptr_t ATTITUDE = 0x00C0;     // uint32_t attitude flags
         static constexpr uintptr_t RANK_FLAGS = 0x0264;   // uint32_t rank flags (veteran, elite, etc.)
         static constexpr uintptr_t CORE_STATS = 0x0388;   // ChCliCoreStats* stats subsystem
-        static constexpr uintptr_t ENERGIES = 0x03D8;     // ChCliEnergies* energy subsystem
+        static constexpr uintptr_t ENERGIES = 0x03D0;     // ChCliEnergies* dodge/endurance subsystem
+        static constexpr uintptr_t SPECIAL_ENERGIES = 0x03D8; // ChCliSpecialEnergies* mount/special energy subsystem
         static constexpr uintptr_t HEALTH = 0x03E8;       // ChCliHealth* health subsystem
         static constexpr uintptr_t INVENTORY = 0x3F0;     // Inventory* inventory subsystem
     };
@@ -196,6 +208,7 @@ namespace Offsets {
     struct GdCliGadget {
         static constexpr uintptr_t AG_KEYFRAMED = 0x0038;         // AgKeyframed* agent wrapper
         static constexpr uintptr_t TYPE = 0x0200;                 // uint32_t gadget type
+        static constexpr uintptr_t HEALTH = 0x0218;               // ChCliHealth* health subsystem
         static constexpr uintptr_t RESOURCE_NODE_TYPE = 0x04E4;   // uint32_t resource node type
         static constexpr uintptr_t FLAGS = 0x04E8;                // uint32_t gadget flags
         

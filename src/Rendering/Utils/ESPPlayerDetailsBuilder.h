@@ -45,7 +45,7 @@ public:
      * @param player The player entity to analyze
      * @return Map of attributes to their occurrence counts
      */
-    static std::map<kx::data::ApiAttribute, int> BuildAttributeSummary(const RenderablePlayer* player);
+    static std::map<data::ApiAttribute, int> BuildAttributeSummary(const RenderablePlayer* player);
 
     /**
      * @brief Build top 3 dominant stats with percentages
@@ -53,6 +53,13 @@ public:
      * @return Vector of dominant stats (name and percentage)
      */
     static std::vector<DominantStat> BuildDominantStats(const RenderablePlayer* player);
+
+    /**
+     * @brief Get the highest rarity of all equipped items for a player
+     * @param player The player entity to analyze
+     * @return The highest item rarity found
+     */
+    static Game::ItemRarity GetHighestRarity(const RenderablePlayer* player);
 };
 
 } // namespace kx

@@ -28,9 +28,9 @@ void AddressManager::SetContextCollectionPtr(void* ptr)
 }
 
 void AddressManager::ScanAgentArray() {
-    std::optional<uintptr_t> avContextFuncOpt = kx::PatternScanner::FindPattern(
-        std::string(kx::AGENT_VIEW_CONTEXT_PATTERN),
-        std::string(kx::TARGET_PROCESS_NAME)
+    std::optional<uintptr_t> avContextFuncOpt = PatternScanner::FindPattern(
+        std::string(AGENT_VIEW_CONTEXT_PATTERN),
+        std::string(TARGET_PROCESS_NAME)
     );
 
     if (!avContextFuncOpt) {
@@ -42,7 +42,7 @@ void AddressManager::ScanAgentArray() {
     uintptr_t avContextFuncAddr = *avContextFuncOpt;
     LOG_INFO("[AddressManager] Found AgentViewContext at: 0x%p", (void*)avContextFuncAddr);
 
-    std::optional<uintptr_t> leaInstructionOpt = kx::PatternScanner::FindPattern(std::string(kx::AGENT_ARRAY_LEA_PATTERN), avContextFuncAddr, AddressingConstants::AGENT_ARRAY_SEARCH_RANGE);
+    std::optional<uintptr_t> leaInstructionOpt = PatternScanner::FindPattern(std::string(AGENT_ARRAY_LEA_PATTERN), avContextFuncAddr, AddressingConstants::AGENT_ARRAY_SEARCH_RANGE);
 
     if (!leaInstructionOpt) {
         LOG_ERROR("[AddressManager] Could not find AgentArray LEA instruction inside AvContext.");
@@ -60,9 +60,9 @@ void AddressManager::ScanAgentArray() {
 }
 
 void AddressManager::ScanWorldViewContextPtr() {
-    std::optional<uintptr_t> landmarkOpt = kx::PatternScanner::FindPattern(
-        std::string(kx::WORLD_VIEW_CONTEXT_PATTERN),
-        std::string(kx::TARGET_PROCESS_NAME)
+    std::optional<uintptr_t> landmarkOpt = PatternScanner::FindPattern(
+        std::string(WORLD_VIEW_CONTEXT_PATTERN),
+        std::string(TARGET_PROCESS_NAME)
     );
 
     if (!landmarkOpt) {
@@ -90,9 +90,9 @@ void AddressManager::ScanWorldViewContextPtr() {
 
 void AddressManager::ScanBgfxContextFunc()
 {
-    std::optional<uintptr_t> getContextOpt = kx::PatternScanner::FindPattern(
-        std::string(kx::BGFX_CONTEXT_FUNC_PATTERN),
-        std::string(kx::TARGET_PROCESS_NAME)
+    std::optional<uintptr_t> getContextOpt = PatternScanner::FindPattern(
+        std::string(BGFX_CONTEXT_FUNC_PATTERN),
+        std::string(TARGET_PROCESS_NAME)
     );
 
     if (!getContextOpt) {
@@ -114,9 +114,9 @@ void AddressManager::ScanBgfxContextFunc()
 
 void AddressManager::ScanContextCollectionFunc()
 {
-    std::optional<uintptr_t> funcOpt = kx::PatternScanner::FindPattern(
-        std::string(kx::CONTEXT_COLLECTION_FUNC_PATTERN),
-        std::string(kx::TARGET_PROCESS_NAME)
+    std::optional<uintptr_t> funcOpt = PatternScanner::FindPattern(
+        std::string(CONTEXT_COLLECTION_FUNC_PATTERN),
+        std::string(TARGET_PROCESS_NAME)
     );
 
     if (!funcOpt) {
@@ -130,9 +130,9 @@ void AddressManager::ScanContextCollectionFunc()
 }
 
 void AddressManager::ScanGameThreadUpdateFunc() {
-    std::optional<uintptr_t> locatorOpt = kx::PatternScanner::FindPattern(
-        std::string(kx::ALERT_CONTEXT_LOCATOR_PATTERN),
-        std::string(kx::TARGET_PROCESS_NAME)
+    std::optional<uintptr_t> locatorOpt = PatternScanner::FindPattern(
+        std::string(ALERT_CONTEXT_LOCATOR_PATTERN),
+        std::string(TARGET_PROCESS_NAME)
     );
 
     if (!locatorOpt) {
@@ -167,7 +167,33 @@ void AddressManager::ScanGameThreadUpdateFunc() {
         return;
     }
 
+    // Validate VTable pointer is within module bounds
+    uintptr_t moduleBase = GetModuleBase();
+    size_t moduleSize = GetModuleSize();
+    uintptr_t vtableAddr = reinterpret_cast<uintptr_t>(vtable);
+
+    if (moduleBase == 0 || moduleSize == 0) {
+        LOG_ERROR("[AddressManager] Module information not available for VTable validation");
+        s_pointers.gameThreadUpdateFunc = 0;
+        return;
+    }
+
+    if (vtableAddr < moduleBase || vtableAddr >= (moduleBase + moduleSize)) {
+        LOG_ERROR("[AddressManager] VTable pointer 0x%p outside module bounds [0x%p - 0x%p]",
+                  (void*)vtableAddr, (void*)moduleBase, (void*)(moduleBase + moduleSize));
+        s_pointers.gameThreadUpdateFunc = 0;
+        return;
+    }
+
     s_pointers.gameThreadUpdateFunc = vtable[AddressingConstants::GAME_THREAD_UPDATE_VTABLE_INDEX];
+
+    // Also validate the final function pointer
+    uintptr_t funcAddr = s_pointers.gameThreadUpdateFunc;
+    if (funcAddr < moduleBase || funcAddr >= (moduleBase + moduleSize)) {
+        LOG_ERROR("[AddressManager] GameThreadUpdate function 0x%p outside module bounds", (void*)funcAddr);
+        s_pointers.gameThreadUpdateFunc = 0;
+        return;
+    }
 
     LOG_INFO("[AddressManager] -> SUCCESS: GameThreadUpdate function resolved to: 0x%p", (void*)s_pointers.gameThreadUpdateFunc);
 }
@@ -193,14 +219,18 @@ void AddressManager::ScanModuleInformation() {
 
 void AddressManager::Scan() {
     LOG_INFO("[AddressManager] Scanning for memory addresses...");
+    
+    // Scan active pointers (currently used)
     ScanModuleInformation();
     ScanContextCollectionFunc();
     ScanGameThreadUpdateFunc();
 
-    // currently unused
-    //ScanAgentArray();
-    //ScanWorldViewContextPtr();
-    //ScanBgfxContextFunc();
+    // Future feature scanners (currently inactive but kept for future use)
+    // These are commented out to avoid unnecessary scanning overhead
+    // but can be easily enabled when the features are implemented:
+    //ScanAgentArray();           // For future ESP features
+    //ScanWorldViewContextPtr();  // For future rendering features  
+    //ScanBgfxContextFunc();      // For future rendering features
 }
 
 void AddressManager::Initialize() {

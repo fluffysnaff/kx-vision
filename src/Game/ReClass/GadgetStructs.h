@@ -4,6 +4,7 @@
 #include "../../Utils/SafeForeignClass.h"
 #include "../GameEnums.h"
 #include "../offsets.h"
+#include "CharacterStructs.h"
 #include <glm.hpp>
 
 namespace kx {
@@ -12,9 +13,9 @@ namespace kx {
         /**
          * @brief Coordinate/Object wrapper for keyframed entities (gadgets)
          */
-        class CoKeyFramed : public kx::SafeForeignClass {
+        class CoKeyFramed : public SafeForeignClass {
         public:
-            CoKeyFramed(void* ptr) : kx::SafeForeignClass(ptr) {}
+            CoKeyFramed(void* ptr) : SafeForeignClass(ptr) {}
 
             glm::vec3 GetPosition() const {
                 LOG_MEMORY("CoKeyFramed", "GetPosition", data(), Offsets::CoKeyframed::POSITION);
@@ -29,9 +30,9 @@ namespace kx {
         /**
          * @brief Agent wrapper for keyframed entities
          */
-        class AgKeyFramed : public kx::SafeForeignClass {
+        class AgKeyFramed : public SafeForeignClass {
         public:
-            AgKeyFramed(void* ptr) : kx::SafeForeignClass(ptr) {}
+            AgKeyFramed(void* ptr) : SafeForeignClass(ptr) {}
 
             CoKeyFramed GetCoKeyFramed() const {
                 LOG_MEMORY("AgKeyFramed", "GetCoKeyFramed", data(), Offsets::AgKeyframed::CO_KEYFRAMED);
@@ -46,9 +47,9 @@ namespace kx {
         /**
          * @brief Client gadget wrapper
          */
-        class GdCliGadget : public kx::SafeForeignClass {
+        class GdCliGadget : public SafeForeignClass {
         public:
-            GdCliGadget(void* ptr) : kx::SafeForeignClass(ptr) {}
+            GdCliGadget(void* ptr) : SafeForeignClass(ptr) {}
 
             Game::GadgetType GetGadgetType() const {
                 LOG_MEMORY("GdCliGadget", "GetGadgetType", data(), Offsets::GdCliGadget::TYPE);
@@ -58,6 +59,15 @@ namespace kx {
                 
                 LOG_DEBUG("GdCliGadget::GetGadgetType - Type: %u", static_cast<uint32_t>(gadgetType));
                 return gadgetType;
+            }
+
+            ChCliHealth GetHealth() const {
+                LOG_MEMORY("GdCliGadget", "GetHealth", data(), Offsets::GdCliGadget::HEALTH);
+
+                ChCliHealth result = ReadPointer<ChCliHealth>(Offsets::GdCliGadget::HEALTH);
+
+                LOG_PTR("Health", result.data());
+                return result;
             }
 
             Game::ResourceNodeType GetResourceNodeType() const {

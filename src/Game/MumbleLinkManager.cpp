@@ -25,6 +25,7 @@ bool MumbleLinkManager::Initialize() {
     );
 
     if (m_mumbleLinkFile == NULL) {
+        m_status = MumbleStatus::Disconnected;
         return false;
     }
 
@@ -39,42 +40,54 @@ bool MumbleLinkManager::Initialize() {
     if (m_mumbleLink == NULL) {
         CloseHandle(m_mumbleLinkFile);
         m_mumbleLinkFile = nullptr;
+        m_status = MumbleStatus::Disconnected;
         return false;
     }
 
-    m_mumbleLinkInitialized = true;
+    // On success, we just report that we have a mapped file.
+    // We don't know if it's valid yet.
+    m_status = MumbleStatus::Connecting;
     return true;
 }
 
 void MumbleLinkManager::Update() {
-    if (!m_mumbleLinkInitialized) {
+    if (!m_mumbleLink) {
+        m_status = MumbleStatus::Disconnected;
         auto now = std::chrono::steady_clock::now();
         if (now - m_lastMumbleRetryTime >= MumbleRetryInterval) {
             m_lastMumbleRetryTime = now;
-            if (!Initialize()) {
-                return;
+            Initialize();
+        }
+        return;
+    }
+
+    // The definitive check on every frame, as requested.
+    bool isHeaderValid = (m_mumbleLink->uiVersion == 2 && std::wcscmp(m_mumbleLink->name, GW2_GAME_NAME) == 0);
+
+    if (isHeaderValid) {
+        m_status = MumbleStatus::Connected;
+        if (m_mumbleLink->uiTick != m_lastTick) {
+            m_lastTick = m_mumbleLink->uiTick;
+            ParseIdentity();
+        }
+    } else {
+        // Header is invalid.
+        if (m_status == MumbleStatus::Connected) {
+            // If we were connected, it means the game just closed. Disconnect fully.
+            m_status = MumbleStatus::Disconnected;
+            if (m_mumbleLink) {
+                UnmapViewOfFile(m_mumbleLink);  // Properly unmap the view
+                m_mumbleLink = nullptr;
+            }
+            if (m_mumbleLinkFile) {
+                CloseHandle(m_mumbleLinkFile);
+                m_mumbleLinkFile = nullptr;
             }
         } else {
-            return;
+            // Otherwise, we are connected to a file, but it has no valid game data.
+            // This is the "Connecting" state. The GUI will handle what to do with it.
+            m_status = MumbleStatus::Connecting;
         }
-    }
-
-    // 1. Validate the basic MumbleLink data (uiVersion and game name).
-    //    If invalid, we stop processing this frame.
-    if (m_mumbleLink->uiVersion != 2 ||
-        std::wcscmp(m_mumbleLink->name, GW2_GAME_NAME) != 0) {
-        return; 
-    }
-
-    // 2. If the data is valid, update m_lastTick if the uiTick has advanced.
-    //    This is for internal tracking of MumbleLink's own tick counter.
-    //    Crucially, the function DOES NOT return here if uiTick hasn't changed.
-    //    The actual camera/avatar data (m_mumbleLink) is always available via GetData().
-    if (m_mumbleLink->uiTick != m_lastTick) {
-        m_lastTick = m_mumbleLink->uiTick;
-        
-        // Parse identity data when tick changes (indicates new data)
-        ParseIdentity();
     }
 }
 
@@ -140,7 +153,7 @@ void MumbleLinkManager::ParseIdentity() {
 
 bool MumbleLinkManager::isInCombat() const {
     if (!m_mumbleLink) return false;
-    return (m_mumbleLink->context.uiState & UiState::IsInCombat) != 0;
+    return (m_mumbleLink->context.uiState & IsInCombat) != 0;
 }
 
 bool MumbleLinkManager::isInWvW() const {
@@ -190,41 +203,23 @@ uint32_t MumbleLinkManager::uiState() const {
     return m_mumbleLink->context.uiState;
 }
 
+float MumbleLinkManager::GetFov() const {
+    return m_identity.fov;
+}
+
+float MumbleLinkManager::GetFovOrDefault(float defaultFov) const {
+    return (m_identity.fov > 0.01f) ? m_identity.fov : defaultFov;
+}
+
 // ====== Elite Specialization Conversion ======
 
-EliteSpec MumbleLinkManager::ConvertAnetSpecIdToEliteSpec(uint8_t anetId) const {
-    // ArenaNet uses different IDs for elite specializations than our enum
-    // This mapping is based on the official API specialization IDs
-    switch (anetId) {
-        case 5: return EliteSpec::Druid;
-        case 7: return EliteSpec::Daredevil;
-        case 18: return EliteSpec::Berserker;
-        case 27: return EliteSpec::Dragonhunter;
-        case 34: return EliteSpec::Reaper;
-        case 40: return EliteSpec::Chronomancer;
-        case 43: return EliteSpec::Scrapper;
-        case 48: return EliteSpec::Tempest;
-        case 52: return EliteSpec::Herald;
-        case 55: return EliteSpec::Soulbeast;
-        case 56: return EliteSpec::Weaver;
-        case 57: return EliteSpec::Holosmith;
-        case 58: return EliteSpec::Deadeye;
-        case 59: return EliteSpec::Mirage;
-        case 60: return EliteSpec::Scourge;
-        case 61: return EliteSpec::Spellbreaker;
-        case 62: return EliteSpec::Firebrand;
-        case 63: return EliteSpec::Renegade;
-        case 64: return EliteSpec::Harbinger;
-        case 65: return EliteSpec::Willbender;
-        case 66: return EliteSpec::Virtuoso;
-        case 67: return EliteSpec::Catalyst;
-        case 68: return EliteSpec::Bladesworn;
-        case 69: return EliteSpec::Vindicator;
-        case 70: return EliteSpec::Mechanist;
-        case 71: return EliteSpec::Specter;
-        case 72: return EliteSpec::Untamed;
-        default: return EliteSpec::None;
+Game::EliteSpec MumbleLinkManager::ConvertAnetSpecIdToEliteSpec(uint8_t anetId) const {
+    // EliteSpec enum now uses ArenaNet API IDs directly, so we can cast directly
+    // Only validate that the ID is within the known range
+    if (anetId == 0 || (anetId >= 5 && anetId <= 72)) {
+        return static_cast<Game::EliteSpec>(anetId);
     }
+    return Game::EliteSpec::None;
 }
 
 } // namespace kx
